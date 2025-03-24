@@ -1,0 +1,29 @@
+name: docking-env
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python
+  - numpy
+  - scipy
+  - pandas
+  - scikit-learn
+  - joblib
+  - tqdm
+  - rdkit
+  - biotite
+  - openmm
+  - pdbfixer
+  - matplotlib
+  - seaborn
+  - plotly
+  - pymol-open-source
+  - pytest
+  - biopython
+  - requests
+  - openbabel
+  - pip
+  - pip:
+    - datamol
+    - cdpkit
+    - mpi4py
