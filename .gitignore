@@ -1,4 +1,4 @@
-*/.cursor
-*/.vscode
+.cursor
+.vscode
 
 **/gnina
