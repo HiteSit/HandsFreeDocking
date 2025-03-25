@@ -51,43 +51,6 @@ from HandsFreeDocking.analysis.clustering import calc_rmsd_mcs_with_timeout
 # Type for OpenMM unit quantities
 UnitQuantity = Quantity
 
-# def extract_unk_residue(modeller: Modeller) -> Tuple[app.Topology, unit.Quantity]:
-#     """
-#     Extract only the UNK residue from a modeller object without modifying the original.
-#     
-#     Parameters
-#     ----------
-#     modeller : openmm.app.Modeller
-#         The modeller object containing the full topology
-#         
-#     Returns
-#     -------
-#     topology : openmm.app.Topology
-#         Topology containing only the UNK residue
-#     positions : openmm.unit.Quantity
-#         Positions of the atoms in the UNK residue with appropriate units
-#     """
-#     # Create a copy of the modeller to preserve the original
-#     unk_modeller: Modeller = copy.deepcopy(modeller)
-#     
-#     # Find the UNK residue in the copy
-#     unk_residues: List[app.Residue] = [res for res in unk_modeller.topology.residues() if res.name == "UNK"]
-#     if not unk_residues:
-#         raise ValueError("No residue named 'UNK' found")
-#         
-#     unk_residue: app.Residue = unk_residues[0]
-#     
-#     # Get a list of all atoms that are NOT in the UNK residue
-#     atoms_to_delete: List[app.Atom] = []
-#     for atom in unk_modeller.topology.atoms():
-#         if atom.residue != unk_residue:
-#             atoms_to_delete.append(atom)
-#     
-#     # Delete all atoms not in the UNK residue
-#     unk_modeller.delete(atoms_to_delete)
-#     
-#     # Return the topology and positions
-#     return unk_modeller.topology, unk_modeller.positions
 
 def minimize_complex(prot_path: Union[str, Path], lig_mol: Chem.rdchem.Mol) -> Dict[str, Union[str, float]]:
     """
@@ -396,6 +359,7 @@ class ProteinMinimizer:
                 'after_min': after_min,
                 'rmsd_val': rmsd_val,
                 'delta_energy': delta_energy,
+                'after_mol': after_mol,
                 'error': None
             }
             
@@ -407,6 +371,7 @@ class ProteinMinimizer:
                 'after_min': None,
                 'rmsd_val': None,
                 'delta_energy': None,
+                'after_mol': None,
                 'error': str(e)
             }
     
@@ -425,8 +390,8 @@ class ProteinMinimizer:
         self.df['PDB_Min'] = None
         self.df['Delta_RMSD'] = None
         self.df['Delta_Energy'] = None
+        self.df['MOL_Min'] = None
         self.df['ERROR'] = None
-        
         # Process each row
         tqdm.pandas(desc="Minimizing proteins")
         
@@ -437,6 +402,7 @@ class ProteinMinimizer:
         for idx, result in zip(self.df.index, results):
             if result:
                 self.df.at[idx, 'PDB_Min'] = result.get('after_min')
+                self.df.at[idx, 'MOL_Min'] = result.get('after_mol')
                 self.df.at[idx, 'Delta_RMSD'] = result.get('rmsd_val')
                 self.df.at[idx, 'Delta_Energy'] = result.get('delta_energy')
                 self.df.at[idx, 'ERROR'] = result.get('error')
