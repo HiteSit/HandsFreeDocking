@@ -1273,3 +1273,1094 @@ class OptimizedKMedoidsClustering:
             'sil_per_cluster': self.sil_per_cluster,
             'grid_search_results': self.grid_search_results
         }
+
+
+from scipy.cluster.hierarchy import linkage, fcluster, dendrogram, cophenet
+from scipy.spatial.distance import squareform, pdist
+import matplotlib.pyplot as plt
+import numpy as np
+import warnings
+from sklearn.decomposition import PCA
+from sklearn.manifold import MDS
+from sklearn.metrics import silhouette_samples, silhouette_score
+from sklearn.preprocessing import StandardScaler
+from tqdm import tqdm
+
+from scipy.cluster.hierarchy import linkage, fcluster, dendrogram, cophenet
+from scipy.spatial.distance import squareform, pdist
+import matplotlib.pyplot as plt
+import numpy as np
+import warnings
+from sklearn.decomposition import PCA
+from sklearn.manifold import MDS
+from sklearn.metrics import silhouette_samples, silhouette_score
+from sklearn.preprocessing import StandardScaler
+from tqdm import tqdm
+
+
+class OptimizedHierarchicalClustering:
+    """
+    A class that performs hierarchical clustering for molecular similarity analysis
+    with multiple extraction modalities and visualization capabilities.
+    
+    This class allows for:
+    1. Grid search over linkage methods and other parameters
+    2. Extraction of clusters at different thresholds (distance-based or count-based)
+    3. Constrained clustering with both distance and size requirements
+    4. Visualization of dendrograms and clusters
+    
+    It maintains consistency with other clustering classes while adding hierarchical-specific
+    features tailored for molecular clustering applications.
+    """
+    
+    def __init__(self, 
+                 k_range=(2, 10),
+                 linkage_methods=('single', 'complete', 'average', 'ward'),
+                 distance_thresholds=None,  # Optional list of distance thresholds to try
+                 criterion='maxclust',  # 'maxclust', 'distance', 'inconsistent', 'monocrit', 'maxclust_monocrit'
+                 use_dimensionality_reduction=True,
+                 output_dimensions=[2, 3, 5, 10],
+                 random_state=42,
+                 n_jobs=-1,
+                 score_weight=0.7,  # Balance between silhouette and cophenetic correlation
+                 verbose=True):
+        """
+        Initialize the hierarchical clustering object with parameters for grid search.
+        
+        Parameters:
+        -----------
+        k_range : tuple
+            Range of K values (number of clusters) to try (min, max)
+        linkage_methods : tuple
+            Linkage methods to try ('single', 'complete', 'average', 'ward')
+        distance_thresholds : list, optional
+            List of distance thresholds to try, if None will automatically derive from data
+        criterion : str
+            Criterion for forming flat clusters ('maxclust', 'distance', etc.)
+        use_dimensionality_reduction : bool
+            Whether to apply dimensionality reduction before clustering (default: True)
+        output_dimensions : list
+            List of output dimensions to try for dimensionality reduction
+        random_state : int
+            Random state for reproducibility
+        n_jobs : int
+            Number of parallel jobs (default: -1, all cores)
+        score_weight : float
+            Weight between silhouette score and cophenetic correlation
+            (higher values favor silhouette score)
+        verbose : bool
+            Whether to print progress information and results
+        """
+        self.k_range = k_range
+        self.linkage_methods = linkage_methods
+        self.distance_thresholds = distance_thresholds
+        self.criterion = criterion
+        self.use_dimensionality_reduction = use_dimensionality_reduction
+        self.output_dimensions = output_dimensions
+        self.random_state = random_state
+        self.n_jobs = n_jobs
+        self.score_weight = score_weight
+        self.verbose = verbose
+        
+        # Initialize attributes to store results
+        self.grid_search_results = None
+        self.best_params = None
+        self.best_labels = None
+        self.embedding = None
+        self.sil_per_cluster = None
+        self.linkage_matrix = None  # Store the linkage matrix for later use
+        self.original_distance_matrix = None  # Store the original distance matrix
+    
+    def fit(self, distance_matrix):
+        """
+        Perform the complete clustering process: grid search and final clustering.
+        
+        Parameters:
+        -----------
+        distance_matrix : numpy.ndarray
+            Distance matrix for clustering
+            
+        Returns:
+        --------
+        numpy.ndarray
+            Cluster labels for each data point using the optimal parameters
+        """
+        # Store the original distance matrix for later use
+        self.original_distance_matrix = distance_matrix.copy()
+        
+        # Compute MDS embedding if dimensionality reduction is enabled
+        if self.use_dimensionality_reduction:
+            self._create_embedding(distance_matrix)
+        
+        # Perform grid search
+        self._perform_grid_search(distance_matrix)
+        
+        # Calculate silhouette scores per cluster for the best solution
+        if self.best_labels is not None:
+            self._calculate_silhouette_per_cluster(distance_matrix)
+        
+        # Print report if verbose
+        if self.verbose:
+            self._print_report()
+        
+        # Return the best labels
+        return self.best_labels
+    
+    def _create_embedding(self, distance_matrix):
+        """
+        Create embedding from distance matrix for dimensionality reduction.
+        
+        Parameters:
+        -----------
+        distance_matrix : numpy.ndarray
+            Distance matrix for clustering
+        """
+        if self.verbose:
+            print("Computing MDS embedding from distance matrix...")
+        
+        # Convert distance matrix to similarity matrix for better MDS results
+        similarity_matrix = 1 / (1 + distance_matrix)
+        np.fill_diagonal(similarity_matrix, 1.0)
+        
+        # Create MDS embedding
+        mds = MDS(
+            n_components=min(distance_matrix.shape[0]-1, max(self.output_dimensions)),
+            dissimilarity='precomputed',
+            random_state=self.random_state,
+            n_jobs=self.n_jobs
+        )
+        
+        mds_embedding = mds.fit_transform(distance_matrix)
+        
+        # Scale the embedding
+        scaler = StandardScaler()
+        self.embedding = scaler.fit_transform(mds_embedding)
+    
+    def _perform_grid_search(self, distance_matrix):
+        """
+        Perform grid search for optimal hierarchical clustering parameters.
+        
+        Parameters:
+        -----------
+        distance_matrix : numpy.ndarray
+            Distance matrix for clustering
+        """
+        if self.verbose:
+            print("Starting grid search for optimal hierarchical clustering parameters...")
+        
+        # Initialize variables to track best results
+        best_combined_score = -np.inf
+        self.best_params = None
+        self.best_labels = None
+        best_silhouette = -1
+        best_cophenetic = -1
+        best_n_clusters = 0
+        
+        # Generate parameter combinations
+        param_combinations = self._generate_parameter_combinations(distance_matrix.shape[0])
+        
+        # Set up progress tracking
+        if self.verbose:
+            print(f"Total parameter combinations to try: {len(param_combinations)}")
+            iterator = tqdm(param_combinations)
+        else:
+            iterator = param_combinations
+        
+        # Track all results
+        all_results = []
+        
+        # Perform grid search
+        for params in iterator:
+            # Apply clustering with current parameters
+            labels, silhouette, n_clusters, linkage_matrix, cophenetic_corr, X_reduced = self._apply_clustering(
+                distance_matrix, params
+            )
+            
+            # Skip invalid results
+            if n_clusters <= 1 or silhouette < 0:
+                result = {
+                    'params': params,
+                    'n_clusters': n_clusters,
+                    'silhouette': -1,
+                    'cophenetic': cophenetic_corr,
+                    'combined_score': -np.inf
+                }
+                all_results.append(result)
+                continue
+            
+            # Calculate combined score that balances silhouette and cophenetic correlation
+            # Both metrics are in [0,1] range (or [-1,1] for silhouette but we normalize)
+            norm_silhouette = (silhouette + 1) / 2  # Normalize to [0,1]
+            norm_cophenetic = max(0, cophenetic_corr)  # Ensure non-negative
+            
+            # Combined score
+            combined_score = (self.score_weight * norm_silhouette + 
+                             (1 - self.score_weight) * norm_cophenetic)
+            
+            result = {
+                'params': params,
+                'n_clusters': n_clusters,
+                'silhouette': silhouette,
+                'cophenetic': cophenetic_corr,
+                'combined_score': combined_score,
+                'labels': labels,
+                'linkage_matrix': linkage_matrix,
+                'reduced_data': X_reduced
+            }
+            all_results.append(result)
+            
+            # Update best score if better
+            if combined_score > best_combined_score:
+                best_combined_score = combined_score
+                self.best_params = params.copy()
+                self.best_labels = labels
+                best_silhouette = silhouette
+                best_cophenetic = cophenetic_corr
+                best_n_clusters = n_clusters
+                self.linkage_matrix = linkage_matrix
+        
+        # Filter valid results and sort by combined score
+        valid_results = [r for r in all_results if r.get('combined_score', -np.inf) > -np.inf]
+        top_results = sorted(valid_results, key=lambda x: x.get('combined_score', -np.inf), reverse=True)[:10]
+        
+        # Store results
+        self.grid_search_results = {
+            'best_params': self.best_params,
+            'best_silhouette': best_silhouette,
+            'best_cophenetic': best_cophenetic,
+            'best_n_clusters': best_n_clusters,
+            'best_labels': self.best_labels,
+            'best_linkage_matrix': self.linkage_matrix,
+            'top_results': top_results,
+            'all_results': all_results
+        }
+        
+        # Visualization of best result
+        if self.verbose and self.best_params and 'labels' in next(
+            (r for r in all_results if r['params'] == self.best_params), {}
+        ):
+            self._visualize_best_result(top_results[0] if top_results else None)
+    
+    def _generate_parameter_combinations(self, n_samples):
+        """
+        Generate all parameter combinations for grid search.
+        
+        Parameters:
+        -----------
+        n_samples : int
+            Number of samples in the dataset
+        
+        Returns:
+        --------
+        list
+            List of parameter dictionaries
+        """
+        param_combinations = []
+        
+        # Generate cluster numbers
+        k_values = np.arange(self.k_range[0], min(self.k_range[1] + 1, n_samples))
+        
+        # Direct hierarchical clustering on distance matrix
+        for linkage_method in self.linkage_methods:
+            for k in k_values:
+                param_combinations.append({
+                    'reduction': 'none',
+                    'dimensions': 'original',
+                    'linkage': linkage_method,
+                    'k': k,
+                    'criterion': 'maxclust'  # Using maxclust for grid search
+                })
+        
+        # Add dimensionality reduction methods if enabled
+        if self.use_dimensionality_reduction:
+            for dim in self.output_dimensions:
+                if dim >= n_samples:
+                    continue  # Skip if dimension is too large
+                
+                for linkage_method in self.linkage_methods:
+                    for k in k_values:
+                        param_combinations.append({
+                            'reduction': 'pca',
+                            'dimensions': dim,
+                            'linkage': linkage_method,
+                            'k': k,
+                            'criterion': 'maxclust'  # Using maxclust for grid search
+                        })
+        
+        return param_combinations
+    
+    def _apply_clustering(self, distance_matrix, params):
+        """
+        Apply clustering with given parameters.
+        
+        Parameters:
+        -----------
+        distance_matrix : numpy.ndarray
+            Distance matrix for clustering
+        params : dict
+            Dictionary of parameters
+        
+        Returns:
+        --------
+        tuple
+            (labels, silhouette_score, n_clusters, linkage_matrix, cophenetic_corr, reduced_data)
+        """
+        reduction = params['reduction']
+        dimensions = params['dimensions']
+        linkage_method = params['linkage']
+        k = params['k']
+        
+        # Apply dimensionality reduction if needed
+        if reduction == 'none':
+            # Using scipy's linkage requires a condensed distance matrix
+            condensed_dist = squareform(distance_matrix, checks=False)
+            X_reduced = None
+            # Calculate linkage matrix
+            try:
+                lnk_matrix = linkage(condensed_dist, method=linkage_method)
+            except Exception as e:
+                if self.verbose:
+                    print(f"Error in linkage calculation for {params}: {str(e)}")
+                return (None, -1, 0, None, -1, None)
+        else:
+            if reduction == 'pca':
+                # Use PCA on embedding
+                reducer = PCA(n_components=dimensions, random_state=self.random_state)
+                X_reduced = reducer.fit_transform(self.embedding)
+                # Calculate pairwise distances
+                condensed_dist = pdist(X_reduced)
+                # Calculate linkage matrix
+                try:
+                    lnk_matrix = linkage(condensed_dist, method=linkage_method)
+                except Exception as e:
+                    if self.verbose:
+                        print(f"Error in linkage calculation for {params}: {str(e)}")
+                    return (None, -1, 0, None, -1, None)
+        
+        # Calculate cluster labels
+        try:
+            labels = fcluster(lnk_matrix, k, criterion='maxclust')
+            # Adjust to 0-indexed (fcluster returns 1-indexed by default)
+            labels = labels - 1
+        except Exception as e:
+            if self.verbose:
+                print(f"Error in fcluster for {params}: {str(e)}")
+            return (None, -1, 0, None, -1, None)
+        
+        # Count clusters
+        n_clusters = len(np.unique(labels))
+        
+        # Calculate cophenetic correlation coefficient
+        try:
+            c, _ = cophenet(lnk_matrix, condensed_dist)
+            cophenetic_corr = c
+        except Exception as e:
+            if self.verbose:
+                print(f"Error calculating cophenetic correlation: {str(e)}")
+            cophenetic_corr = -1
+        
+        # Calculate silhouette score
+        silhouette = -1
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                if reduction == 'none':
+                    silhouette = silhouette_score(distance_matrix, labels, metric='precomputed')
+                else:
+                    silhouette = silhouette_score(X_reduced, labels)
+        except Exception as e:
+            if self.verbose:
+                print(f"Silhouette calculation failed for {params}: {str(e)}")
+        
+        return (labels, silhouette, n_clusters, lnk_matrix, cophenetic_corr, X_reduced)
+    
+    def _calculate_silhouette_per_cluster(self, distance_matrix):
+        """
+        Calculate silhouette score for each cluster in the best clustering.
+        
+        Parameters:
+        -----------
+        distance_matrix : numpy.ndarray
+            Distance matrix for clustering
+        """
+        labels = self.best_labels
+        best_params = self.best_params
+        
+        # Skip if no valid clustering found
+        if labels is None or best_params is None:
+            self.sil_per_cluster = {}
+            return
+        
+        try:
+            if best_params['reduction'] == 'none':
+                # Use distance matrix for silhouette
+                sample_silhouette_values = silhouette_samples(distance_matrix, labels, metric='precomputed')
+            else:
+                # For dimensionality reduction, recompute reduced data
+                reduction = best_params['reduction']
+                dimensions = best_params['dimensions']
+                
+                if reduction == 'pca':
+                    reducer = PCA(n_components=dimensions, random_state=self.random_state)
+                    X_reduced = reducer.fit_transform(self.embedding)
+                
+                sample_silhouette_values = silhouette_samples(X_reduced, labels)
+            
+            # Calculate silhouette per cluster
+            self.sil_per_cluster = {}
+            for cluster_label in np.unique(labels):
+                cluster_silhouette_values = sample_silhouette_values[labels == cluster_label]
+                self.sil_per_cluster[int(cluster_label)] = float(np.mean(cluster_silhouette_values))
+        
+        except Exception as e:
+            if self.verbose:
+                print(f"Error calculating silhouette per cluster: {str(e)}")
+            self.sil_per_cluster = {}
+    
+    def _print_report(self):
+        """Print a report of the grid search results."""
+        if self.grid_search_results is None or self.best_params is None:
+            print("No valid clustering results found!")
+            return
+            
+        print("\n===== Hierarchical Clustering Report =====")
+        print(f"Best silhouette score: {self.grid_search_results['best_silhouette']:.4f}")
+        print(f"Best cophenetic correlation: {self.grid_search_results['best_cophenetic']:.4f}")
+        print(f"Number of clusters: {self.grid_search_results['best_n_clusters']}")
+        
+        best = self.best_params
+        print(f"Best parameters:")
+        print(f"  - Dimensionality reduction: {best['reduction']}")
+        print(f"  - Dimensions: {best['dimensions']}")
+        print(f"  - Linkage method: {best['linkage']}")
+        print(f"  - K (number of clusters): {best['k']}")
+        
+        if self.sil_per_cluster:
+            print("\nSilhouette score per cluster:")
+            for cluster, score in sorted(self.sil_per_cluster.items()):
+                print(f"  - Cluster {cluster}: {score:.4f}")
+        
+        # Print top 5 results
+        top_results = self.grid_search_results.get('top_results', [])
+        if top_results:
+            print("\nTop 5 parameter combinations:")
+            for i, result in enumerate(top_results[:5]):
+                p = result['params']
+                print(f"{i+1}. Silhouette: {result['silhouette']:.3f}, Cophenetic: {result['cophenetic']:.3f}, "
+                      f"Clusters: {result['n_clusters']}, "
+                      f"Method: {p['reduction']}, Dims: {p['dimensions']}, "
+                      f"Linkage: {p['linkage']}, K: {p['k']}")
+        
+        print("=====================================")
+    
+    def _visualize_best_result(self, best_result):
+        """
+        Visualize the best clustering result.
+        
+        Parameters:
+        -----------
+        best_result : dict
+            Dictionary containing the best result details
+        """
+        if best_result is None:
+            return
+            
+        # First, plot the dendrogram
+        self.plot_dendrogram(truncate_mode='level', p=5, leaf_font_size=10, 
+                             title=f"Hierarchical Clustering Dendrogram (Best: {best_result['params']['linkage']} linkage)")
+        
+        # Then, plot the clusters in reduced space if available
+        best_params = best_result['params']
+        if best_params['reduction'] != 'none' and 'reduced_data' in best_result and best_result['reduced_data'] is not None:
+            if best_result['reduced_data'].shape[1] > 1:
+                # Use the reduced data directly
+                X_viz = best_result['reduced_data']
+                if X_viz.shape[1] > 2:
+                    # Apply PCA to get 2D visualization
+                    viz_reducer = PCA(n_components=2, random_state=self.random_state)
+                    X_viz = viz_reducer.fit_transform(X_viz)
+                
+                # Plot the clusters
+                plt.figure(figsize=(10, 8))
+                scatter = plt.scatter(X_viz[:, 0], X_viz[:, 1], c=best_result['labels'], cmap='viridis', alpha=0.7)
+                plt.colorbar(scatter, label='Cluster')
+                plt.title(f"Hierarchical Clustering: {best_params['linkage']} linkage\n"
+                         f"Dimensions: {best_params['dimensions']}, K: {best_params['k']}\n"
+                         f"Silhouette: {best_result['silhouette']:.3f}, Cophenetic: {best_result['cophenetic']:.3f}")
+                plt.xlabel("Component 1")
+                plt.ylabel("Component 2")
+                plt.show()
+    
+    # =========================================================================
+    # Helper methods for extracting clusters with different criteria
+    # =========================================================================
+    
+    def get_clusters_by_distance(self, threshold, criterion='distance', printout=False):
+        """
+        Extract clusters by cutting the dendrogram at a specific distance threshold.
+        
+        Parameters:
+        -----------
+        threshold : float
+            Distance threshold at which to cut the dendrogram
+        criterion : str, optional
+            Criterion used to form flat clusters (default: 'distance')
+        printout : bool, optional
+            Whether to print clustering results and silhouette scores (default: False)
+            
+        Returns:
+        --------
+        dict
+            Dictionary containing:
+            - 'labels': numpy.ndarray of cluster labels (0-indexed)
+            - 'silhouette_scores': dict mapping cluster labels to their silhouette scores
+            - 'average_silhouette': float of the average silhouette score
+        """
+        if self.linkage_matrix is None:
+            raise ValueError("No linkage matrix available. Run fit() first.")
+        
+        # Extract clusters at the given distance threshold
+        labels = fcluster(self.linkage_matrix, threshold, criterion=criterion)
+        # Convert to 0-indexed
+        labels = labels - 1
+        
+        # Print summary
+        n_clusters = len(np.unique(labels))
+        if self.verbose and printout:
+            print(f"Extracted {n_clusters} clusters at distance threshold {threshold}")
+            
+        # Calculate silhouette scores if there are multiple clusters
+        silhouette_data = {"average_silhouette": None, "silhouette_scores": {}}
+        if n_clusters > 1:
+            silhouette_data = self._calculate_silhouette_scores(labels)
+            if printout:
+                self._print_silhouette_data(silhouette_data)
+        
+        return {
+            "labels": labels,
+            "average_silhouette": silhouette_data["average_silhouette"],
+            "silhouette_scores": silhouette_data["silhouette_scores"],
+            "n_clusters": n_clusters
+        }
+    
+    def get_clusters_by_number(self, n_clusters, printout=False):
+        """
+        Extract exactly n_clusters by cutting the dendrogram appropriately.
+        
+        Parameters:
+        -----------
+        n_clusters : int
+            Number of clusters to extract
+        printout : bool, optional
+            Whether to print clustering results and silhouette scores (default: False)
+            
+        Returns:
+        --------
+        dict
+            Dictionary containing:
+            - 'labels': numpy.ndarray of cluster labels (0-indexed)
+            - 'silhouette_scores': dict mapping cluster labels to their silhouette scores
+            - 'average_silhouette': float of the average silhouette score
+        """
+        if self.linkage_matrix is None:
+            raise ValueError("No linkage matrix available. Run fit() first.")
+        
+        # Extract the specified number of clusters
+        labels = fcluster(self.linkage_matrix, n_clusters, criterion='maxclust')
+        # Convert to 0-indexed
+        labels = labels - 1
+        
+        if self.verbose and printout:
+            print(f"Extracted {n_clusters} clusters")
+        
+        # Calculate silhouette scores if there are multiple clusters
+        silhouette_data = {"average_silhouette": None, "silhouette_scores": {}}
+        if n_clusters > 1:
+            silhouette_data = self._calculate_silhouette_scores(labels)
+            if printout:
+                self._print_silhouette_data(silhouette_data)
+        
+        return {
+            "labels": labels,
+            "average_silhouette": silhouette_data["average_silhouette"],
+            "silhouette_scores": silhouette_data["silhouette_scores"],
+            "n_clusters": n_clusters
+        }
+    
+    def get_clusters_constrained(self, distance_threshold=None, min_clusters=2, max_clusters=None, strip_singletons=True, printout=False):
+        """
+        Extract clusters with constraints on both distance and cluster count.
+        
+        This function balances between:
+        1. A maximum distance threshold (to ensure cluster members are similar enough)
+        2. A minimum number of clusters (to ensure sufficient separation)
+        3. A maximum number of clusters (to prevent over-fragmentation)
+        
+        Parameters:
+        -----------
+        distance_threshold : float, optional
+            Maximum allowed distance within clusters (if None, no constraint)
+        min_clusters : int, optional
+            Minimum number of clusters to extract (default: 2)
+        max_clusters : int, optional
+            Maximum number of clusters to extract (if None, no upper limit)
+        strip_singletons : bool, optional
+            Whether to remove singleton clusters (clusters with only one element) (default: True)
+            If True, singleton elements will be labeled as -1 (noise)
+        printout : bool, optional
+            Whether to print clustering results and silhouette scores (default: False)
+            
+        Returns:
+        --------
+        dict
+            Dictionary containing:
+            - 'labels': numpy.ndarray of cluster labels (0-indexed)
+            - 'silhouette_scores': dict mapping cluster labels to their silhouette scores
+            - 'average_silhouette': float of the average silhouette score
+            - 'n_clusters': int number of clusters
+            - 'n_singletons': int number of singleton points (if strip_singletons=True)
+        """
+        if self.linkage_matrix is None:
+            raise ValueError("No linkage matrix available. Run fit() first.")
+        
+        # Initial clustering
+        result = {
+            "labels": None,
+            "average_silhouette": None,
+            "silhouette_scores": {},
+            "n_clusters": 0,
+            "n_singletons": 0
+        }
+        
+        if distance_threshold is not None:
+            # First try distance-based clustering
+            labels = fcluster(self.linkage_matrix, distance_threshold, criterion='distance')
+            n_clusters = len(np.unique(labels))
+            
+            # Check if constraints are satisfied
+            if n_clusters >= min_clusters and (max_clusters is None or n_clusters <= max_clusters):
+                if self.verbose and printout:
+                    print(f"Using distance threshold {distance_threshold} resulted in {n_clusters} clusters")
+                # Convert to 0-indexed 
+                labels = labels - 1
+                result["n_clusters"] = n_clusters
+                
+                # Apply singleton stripping if requested
+                if strip_singletons:
+                    labels = self._strip_singleton_clusters(labels)
+                    n_clusters_after = len(np.unique(labels[labels >= 0]))
+                    n_singletons = np.sum(labels == -1)
+                    result["n_singletons"] = n_singletons
+                    
+                    if self.verbose and printout:
+                        print(f"After removing {n_singletons} singletons, {n_clusters_after} clusters remain")
+                    
+                    # Check if we still satisfy minimum clusters constraint
+                    if n_clusters_after < min_clusters:
+                        if self.verbose and printout:
+                            print(f"After removing singletons, too few clusters remain ({n_clusters_after} < {min_clusters})")
+                        # Fall through to max_clusters calculation below
+                    else:
+                        # Calculate silhouette scores if there are multiple clusters
+                        silhouette_data = {"average_silhouette": None, "silhouette_scores": {}}
+                        if n_clusters_after > 1:
+                            silhouette_data = self._calculate_silhouette_scores(labels)
+                            if printout:
+                                self._print_silhouette_data(silhouette_data)
+                        
+                        result["labels"] = labels
+                        result["n_clusters"] = n_clusters_after
+                        result["average_silhouette"] = silhouette_data["average_silhouette"]
+                        result["silhouette_scores"] = silhouette_data["silhouette_scores"]
+                        return result
+                else:
+                    # Calculate silhouette scores if there are multiple clusters
+                    silhouette_data = {"average_silhouette": None, "silhouette_scores": {}}
+                    if n_clusters > 1:
+                        silhouette_data = self._calculate_silhouette_scores(labels)
+                        if printout:
+                            self._print_silhouette_data(silhouette_data)
+                    
+                    result["labels"] = labels
+                    result["average_silhouette"] = silhouette_data["average_silhouette"]
+                    result["silhouette_scores"] = silhouette_data["silhouette_scores"]
+                    return result
+        
+        # If we get here, either:
+        # 1. No distance threshold specified
+        # 2. Distance threshold resulted in too few clusters
+        # 3. Distance threshold resulted in too many clusters
+        
+        # Determine appropriate number of clusters
+        if max_clusters is None:
+            # If no max, use min_clusters
+            target_clusters = min_clusters
+        else:
+            # If both min and max specified, use midpoint
+            target_clusters = (min_clusters + max_clusters) // 2
+        
+        # Get clusters by count
+        labels = fcluster(self.linkage_matrix, target_clusters, criterion='maxclust')
+        
+        if self.verbose and printout:
+            print(f"Using constrained approach resulted in {target_clusters} clusters")
+        
+        # Convert to 0-indexed
+        labels = labels - 1
+        result["n_clusters"] = target_clusters
+        
+        # Apply singleton stripping if requested
+        if strip_singletons:
+            labels = self._strip_singleton_clusters(labels)
+            n_clusters_after = len(np.unique(labels[labels >= 0]))
+            n_singletons = np.sum(labels == -1)
+            result["n_singletons"] = n_singletons
+            result["n_clusters"] = n_clusters_after
+            
+            if self.verbose and printout:
+                print(f"After removing {n_singletons} singletons, {n_clusters_after} clusters remain")
+        
+        # Calculate silhouette scores if there are multiple clusters
+        silhouette_data = {"average_silhouette": None, "silhouette_scores": {}}
+        n_valid_clusters = len(np.unique(labels[labels >= 0]))
+        if n_valid_clusters > 1:
+            silhouette_data = self._calculate_silhouette_scores(labels)
+            if printout:
+                self._print_silhouette_data(silhouette_data)
+        
+        result["labels"] = labels
+        result["average_silhouette"] = silhouette_data["average_silhouette"]
+        result["silhouette_scores"] = silhouette_data["silhouette_scores"]
+        
+        return result
+    
+    def _calculate_silhouette_scores(self, labels):
+        """
+        Calculate silhouette scores for the given clustering.
+        
+        Parameters:
+        -----------
+        labels : numpy.ndarray
+            Cluster labels (0-indexed)
+            
+        Returns:
+        --------
+        dict
+            Dictionary containing:
+            - 'average_silhouette': float of the average silhouette score
+            - 'silhouette_scores': dict mapping cluster labels to their silhouette scores
+        """
+        result = {
+            "average_silhouette": None,
+            "silhouette_scores": {}
+        }
+        
+        if self.original_distance_matrix is None:
+            return result
+        
+        try:
+            # For clusters with noise points (label -1), exclude them from silhouette calculation
+            if -1 in labels:
+                # Get indices of non-noise points
+                non_noise_mask = labels >= 0
+                non_noise_indices = np.where(non_noise_mask)[0]
+                
+                if len(np.unique(labels[non_noise_mask])) <= 1:
+                    return result
+                
+                # Filter distance matrix and labels
+                filtered_distance = self.original_distance_matrix[np.ix_(non_noise_indices, non_noise_indices)]
+                filtered_labels = labels[non_noise_indices]
+                
+                # Calculate overall silhouette score
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    silhouette_avg = silhouette_score(
+                        filtered_distance, 
+                        filtered_labels, 
+                        metric='precomputed'
+                    )
+                
+                # Calculate silhouette scores per sample
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    sample_silhouette_values = silhouette_samples(
+                        filtered_distance, 
+                        filtered_labels, 
+                        metric='precomputed'
+                    )
+                
+                # Calculate average silhouette score per cluster
+                for cluster_label in np.unique(filtered_labels):
+                    cluster_indices = np.where(filtered_labels == cluster_label)[0]
+                    cluster_silhouette_values = sample_silhouette_values[cluster_indices]
+                    silhouette_mean = float(np.mean(cluster_silhouette_values))
+                    
+                    # Use the original cluster label in the result
+                    result["silhouette_scores"][int(cluster_label)] = silhouette_mean
+            else:
+                # No noise points, use all data
+                # Calculate overall silhouette score
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    silhouette_avg = silhouette_score(
+                        self.original_distance_matrix, 
+                        labels, 
+                        metric='precomputed'
+                    )
+                
+                # Calculate silhouette scores per sample
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    sample_silhouette_values = silhouette_samples(
+                        self.original_distance_matrix, 
+                        labels, 
+                        metric='precomputed'
+                    )
+                
+                # Calculate average silhouette score per cluster
+                for cluster_label in np.unique(labels):
+                    cluster_silhouette_values = sample_silhouette_values[labels == cluster_label]
+                    silhouette_mean = float(np.mean(cluster_silhouette_values))
+                    result["silhouette_scores"][int(cluster_label)] = silhouette_mean
+            
+            # Store the average silhouette score
+            result["average_silhouette"] = float(silhouette_avg)
+            
+        except Exception as e:
+            pass
+        
+        return result
+    
+    def _print_silhouette_data(self, silhouette_data):
+        """
+        Print silhouette score information.
+        
+        Parameters:
+        -----------
+        silhouette_data : dict
+            Dictionary containing silhouette score information
+        """
+        if silhouette_data["average_silhouette"] is not None:
+            print(f"Average silhouette score: {silhouette_data['average_silhouette']:.4f}")
+            
+            print("Silhouette score per cluster:")
+            for cluster_label, score in sorted(silhouette_data["silhouette_scores"].items()):
+                print(f"  - Cluster {cluster_label}: {score:.4f}")
+    
+    def _print_silhouette_scores(self, labels):
+        """
+        Calculate and print silhouette scores for the given clustering.
+        
+        Parameters:
+        -----------
+        labels : numpy.ndarray
+            Cluster labels (0-indexed)
+        """
+        silhouette_data = self._calculate_silhouette_scores(labels)
+        self._print_silhouette_data(silhouette_data)
+    
+    def _strip_singleton_clusters(self, labels):
+        """
+        Helper method to remove singleton clusters.
+        
+        Parameters:
+        -----------
+        labels : numpy.ndarray
+            Cluster labels (0-indexed)
+            
+        Returns:
+        --------
+        numpy.ndarray
+            New labels with singletons marked as -1 and remaining clusters re-indexed
+        """
+        # Create a copy to avoid modifying the original
+        new_labels = labels.copy()
+        
+        # Count elements in each cluster
+        unique_labels, counts = np.unique(labels, return_counts=True)
+        
+        # Identify singleton clusters (clusters with only one element)
+        singleton_clusters = unique_labels[counts == 1]
+        
+        if len(singleton_clusters) == 0:
+            # No singletons to remove
+            return new_labels
+        
+        # Mark singletons as -1 (noise)
+        for singleton in singleton_clusters:
+            new_labels[labels == singleton] = -1
+        
+        # Re-index the remaining clusters to be consecutive
+        # First get the remaining clusters (non-singleton)
+        remaining_clusters = unique_labels[counts > 1]
+        
+        # Create a mapping from old indices to new consecutive indices
+        mapping = {old_idx: new_idx for new_idx, old_idx in enumerate(remaining_clusters)}
+        
+        # Apply the mapping
+        for old_idx, new_idx in mapping.items():
+            new_labels[labels == old_idx] = new_idx
+        
+        return new_labels
+    
+    def plot_dendrogram(self, color_threshold=None, leaf_rotation=90., 
+                        leaf_font_size=8, labels=None, title="Hierarchical Clustering Dendrogram",
+                        truncate_mode=None, p=5, show=True):
+        """
+        Plot the hierarchical clustering dendrogram.
+        
+        Parameters:
+        -----------
+        color_threshold : float, optional
+            Height at which to color the branches differently
+        leaf_rotation : float, optional
+            Rotation angle for leaf labels (default: 90 degrees)
+        leaf_font_size : int, optional
+            Font size for leaf labels (default: 8)
+        labels : list, optional
+            Leaf labels to use (default: None)
+        title : str, optional
+            Title for the plot
+        truncate_mode : str, optional
+            Truncation mode for large dendrograms ('level', 'lastp', None)
+        p : int, optional
+            Parameter for truncation (max levels or number of leaves)
+            When truncate_mode is 'level', p is the level at which to truncate the tree
+            When truncate_mode is 'lastp', p is the number of leaf nodes to retain
+        show : bool, optional
+            Whether to display the plot (default: True)
+            
+        Returns:
+        --------
+        matplotlib.figure.Figure
+            The figure object containing the dendrogram
+        """
+        if self.linkage_matrix is None:
+            raise ValueError("No linkage matrix available. Run fit() first.")
+        
+        plt.figure(figsize=(12, 8))
+        
+        # Plot the dendrogram
+        # Make sure p is a valid integer when truncate_mode is not None
+        if truncate_mode is not None and p is None:
+            p = 5  # Default value when truncation is requested but p is not specified
+        
+        # Only pass p if truncate_mode is not None
+        kwargs = {
+            'Z': self.linkage_matrix,
+            'color_threshold': color_threshold,
+            'leaf_rotation': leaf_rotation,
+            'leaf_font_size': leaf_font_size,
+            'labels': labels,
+        }
+        
+        if truncate_mode is not None:
+            kwargs['truncate_mode'] = truncate_mode
+            kwargs['p'] = p
+        
+        dendrogram_data = dendrogram(**kwargs)
+        
+        plt.title(title)
+        plt.xlabel('Sample index or (cluster size)')
+        plt.ylabel('Distance')
+        
+        # Draw a horizontal line at the color threshold if specified
+        if color_threshold is not None:
+            plt.axhline(y=color_threshold, c='k', ls='--', lw=1)
+            plt.text(plt.xlim()[1] * 0.99, color_threshold, 
+                     f' threshold = {color_threshold:.2f}', 
+                     va='center', ha='right')
+        
+        if show:
+            plt.tight_layout()
+            plt.show()
+        
+        return plt.gcf()
+    
+    def plot_clusters(self, labels=None, reduced_data=None, title=None):
+        """
+        Visualize clusters in a 2D space.
+        
+        Parameters:
+        -----------
+        labels : numpy.ndarray, optional
+            Cluster labels to visualize (default: best labels from fit)
+        reduced_data : numpy.ndarray, optional
+            Reduced data for visualization (default: computed during fit)
+        title : str, optional
+            Title for the plot
+            
+        Returns:
+        --------
+        matplotlib.figure.Figure
+            The figure object containing the cluster visualization
+        """
+        # Use best labels if none provided
+        if labels is None:
+            if self.best_labels is None:
+                raise ValueError("No labels available. Run fit() first or provide labels.")
+            labels = self.best_labels
+        
+        # Get reduced data for visualization
+        X_viz = None
+        
+        if reduced_data is not None and reduced_data.shape[1] >= 2:
+            # Use provided reduced data
+            X_viz = reduced_data
+            if X_viz.shape[1] > 2:
+                # Apply PCA to get 2D visualization
+                viz_reducer = PCA(n_components=2, random_state=self.random_state)
+                X_viz = viz_reducer.fit_transform(X_viz)
+        elif self.embedding is not None:
+            # Use embedding from fit
+            # Apply PCA to get 2D visualization
+            viz_reducer = PCA(n_components=2, random_state=self.random_state)
+            X_viz = viz_reducer.fit_transform(self.embedding)
+        else:
+            # No reduced data available, use MDS on distance matrix
+            if self.original_distance_matrix is None:
+                raise ValueError("No distance matrix available. Run fit() first.")
+            
+            mds = MDS(n_components=2, dissimilarity='precomputed', 
+                     random_state=self.random_state, n_jobs=self.n_jobs)
+            X_viz = mds.fit_transform(self.original_distance_matrix)
+        
+        # Plot the clusters
+        plt.figure(figsize=(10, 8))
+        scatter = plt.scatter(X_viz[:, 0], X_viz[:, 1], c=labels, cmap='viridis', alpha=0.7)
+        plt.colorbar(scatter, label='Cluster')
+        
+        # Set title
+        if title is None:
+            if self.best_params is not None:
+                title = f"Hierarchical Clustering: {self.best_params['linkage']} linkage\n"
+                title += f"Number of clusters: {len(np.unique(labels))}"
+            else:
+                title = f"Hierarchical Clustering\nNumber of clusters: {len(np.unique(labels))}"
+        
+        plt.title(title)
+        plt.xlabel("Component 1")
+        plt.ylabel("Component 2")
+        plt.tight_layout()
+        plt.show()
+        
+        return plt.gcf()
+    
+    def get_results(self):
+        """
+        Get the complete results of the clustering process.
+        
+        Returns:
+        --------
+        dict
+            Dictionary containing best parameters, labels, silhouette scores per cluster,
+            linkage matrix, and full grid search results
+        """
+        return {
+            'best_params': self.best_params,
+            'best_labels': self.best_labels,
+            'sil_per_cluster': self.sil_per_cluster,
+            'linkage_matrix': self.linkage_matrix,
+            'grid_search_results': self.grid_search_results
+        }

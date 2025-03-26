@@ -345,8 +345,12 @@ class ProteinMinimizer:
             after_unk = extract_unk_residue(after_min)
             after_mol = assign_bond_orders_from_smiles(after_unk, smiles_docked)
             
+            # Remove the hydrogen
+            mol_docked_noH = dm.remove_hs(mol_docked)
+            after_mol_noH = dm.remove_hs(after_mol)
+            
             # Calculate RMSD
-            rmsd_val = calc_rmsd_mcs_with_timeout(mol_docked, after_mol)
+            rmsd_val = calc_rmsd_mcs_with_timeout(mol_docked_noH, after_mol_noH)
             
             # Clean up temporary file
             if after_unk.exists():
@@ -359,7 +363,7 @@ class ProteinMinimizer:
                 'after_min': after_min,
                 'rmsd_val': rmsd_val,
                 'delta_energy': delta_energy,
-                'after_mol': after_mol,
+                'after_mol': after_mol_noH,
                 'error': None
             }
             
