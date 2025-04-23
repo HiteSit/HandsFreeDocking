@@ -1,4 +1,7 @@
 import io
+import os
+import shutil
+import subprocess
 import time
 import warnings
 from pathlib import Path
@@ -14,6 +17,7 @@ import biotite.structure.io.pdb as pdb
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
+
 
 class ProteinPreparation_Protoss:
     """
@@ -443,3 +447,88 @@ class ProteinPreparation_Meeko:
                          Otherwise, returns the path to the prepared protein file in PDBQT format.
         """
         return self.prepare_protein_meeko(input_pdb, output_pdb, crystal_ligand_sdf)
+
+
+class ProteinPreparation_Chimera:
+    """
+    A class for preparing protein structures using UCSF Chimera.
+    """
+    
+    def __init__(self):
+        """
+        Initialize the ProteinPreparation_Chimera class.
+        """
+        pass
+        
+    def _set_chimera_env_variable(self):
+        """
+        Set the environment variable for UCSF Chimera.
+        """
+        os.environ["PATH"] = "/home/hitesit/.local/UCSF-Chimera64-1.16/bin/:" + os.environ.get("PATH", "")
+    
+    def _write_chimera_script(self):
+        """
+        Write a Chimera script for protein preparation.
+        
+        Returns:
+            Path: Path to the Chimera script.
+        """
+        dockprep_str = f"""
+import chimera
+import sys
+from DockPrep import prep
+models = chimera.openModels.list(modelTypes=[chimera.Molecule])
+prep(models)
+from WriteMol2 import writeMol2
+writeMol2(models, "rec_prep.mol2")
+        """
+
+        chimera_py_path = os.path.join(tempfile.gettempdir(), "chimera.py")
+        with open(chimera_py_path, "w") as f:
+            f.write(dockprep_str)
+
+        return Path(chimera_py_path)
+    
+    def prepare_protein_chimera(self, input_pdb: Path, output_pdb: Path) -> Path:
+        """
+        Prepares a protein using UCSF Chimera.
+        
+        Args:
+            input_pdb (Path): Path to the input protein file in PDB format.
+            output_pdb (Path): Path to save the prepared protein file in MOL2 format.
+            
+        Returns:
+            Path: Path to the prepared protein file in MOL2 format.
+        """
+        # Print log message
+        print('Preparing protein with Chimera ...')
+        
+        # Set the environment variable
+        self._set_chimera_env_variable()
+        
+        # Write the Chimera script
+        chimera_py_path = self._write_chimera_script()
+        
+        # Execute the script
+        chimera_command = f"chimera --nogui {str(input_pdb)} {chimera_py_path}"
+        subprocess.run(chimera_command, check=True, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
+        # Handle output
+        output_system = Path(os.path.join(tempfile.gettempdir(), "rec_prep.mol2"))
+        output_pdb.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(output_system, output_pdb)
+        
+        return output_pdb
+    
+    def __call__(self, input_pdb: Path, output_pdb: Path) -> Path:
+        """
+        Call method that wraps prepare_protein_chimera for easier usage.
+        
+        Args:
+            input_pdb (Path): Path to the input protein file in PDB format.
+            output_pdb (Path): Path to save the prepared protein file in MOL2 format.
+            
+        Returns:
+            Path: Path to the prepared protein file in MOL2 format.
+        """
+        return self.prepare_protein_chimera(input_pdb, output_pdb)

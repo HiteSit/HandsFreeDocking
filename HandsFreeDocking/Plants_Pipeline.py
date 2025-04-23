@@ -28,12 +28,12 @@ except ImportError:
     OPENEYE_AVAILABLE = False
 
 try:
-    from .tools.Chimera_Prep import run_chimera_script
+    from .tools.Protein_Preparation import ProteinPreparation_Chimera
     from .tools.tools import pybel_converter, pybel_flagger
     from .tools.CDPK_Utils import CDPK_Runner, stero_enumerator
     from .tools.OpeneEye_Utils import fix_3dmol, get_chirality_and_stereo, gen_3dmol
 except:
-    from tools.Chimera_Prep import run_chimera_script
+    from tools.Protein_Preparation import ProteinPreparation_Chimera
     from tools.tools import pybel_converter, pybel_flagger
     from tools.CDPK_Utils import CDPK_Runner, stero_enumerator
     from tools.OpeneEye_Utils import fix_3dmol, get_chirality_and_stereo, gen_3dmol
@@ -111,7 +111,8 @@ class Plants_Docking:
 
     def _prepare_protein(self):
         pdb_mol2 = self.workdir / f"{self.pdb_ID.stem}_prep.mol2"
-        run_chimera_script(self.protein_cleaned, pdb_mol2)
+        chimera_prep = ProteinPreparation_Chimera()
+        chimera_prep(self.protein_cleaned, pdb_mol2)
 
         self.protein_prepared = pdb_mol2
 
