@@ -182,3 +182,264 @@ class ProteinPreparation_PDBFixer:
 
         PDBFile.writeFile(fixer.topology, fixer.positions, open(str(output_pdb), 'w'), keepIds=True)
         return output_pdb
+
+
+class ProteinPreparation_Meeko:
+    """
+    A class for preparing protein structures using Meeko.
+    This class can handle both standard protein preparation and preparation with a crystal ligand.
+    """
+    
+    def __init__(self):
+        """
+        Initialize the ProteinPreparation_Meeko class.
+        """
+        # Hardcoded environment variable path for mmtbx.reduce2
+        # This is a placeholder and can be easily removed or modified
+        self.mmtbx_ccp4_monomer_lib = "/home/hitesit/Software/FORK/geostd"
+        
+        # Error tracking attributes
+        self.stdout_reduce = None
+        self.stderr_reduce = None
+        self.success_reduce = None
+        
+        self.stdout_meeko = None
+        self.stderr_meeko = None
+        self.success_meeko = None
+        
+        self.prody_error = None
+        self.pymol_error = None
+    
+    def prepare_protein_meeko(self, input_pdb: Path, output_pdb: Path, crystal_ligand_sdf: Path = None) -> dict:
+        """
+        Prepares a protein using Meeko.
+        
+        Args:
+            input_pdb (Path): Path to the input protein file in PDB format.
+            output_pdb (Path): Path to save the prepared protein file.
+            crystal_ligand_sdf (Path, optional): Path to the crystal ligand in SDF format.
+                                               If provided, box dimensions will be calculated.
+        
+        Returns:
+            dict or Path: If crystal_ligand_sdf is provided, returns a dictionary with paths and contents.
+                         Otherwise, returns the path to the prepared protein file in PDBQT format.
+        """
+        import os
+        import subprocess
+        import tempfile
+        from pathlib import Path
+        import traceback
+        
+        # Reset error tracking attributes for this run
+        self.stdout_reduce = None
+        self.stderr_reduce = None
+        self.success_reduce = False
+        
+        self.stdout_meeko = None
+        self.stderr_meeko = None
+        self.success_meeko = False
+        
+        self.prody_error = None
+        self.pymol_error = None
+        
+        # Create temporary directory and files
+        temp_dir = tempfile.gettempdir()
+        temp_hydrogenated = Path(tempfile.mktemp(suffix="_meeko_H.pdb"))
+        temp_aligned = Path(tempfile.mktemp(suffix="_aligned.pdb"))
+        temp_protein = Path(tempfile.mktemp(suffix="_protein.pdb"))
+        
+        # Set environment variables for mmtbx.reduce2
+        env = os.environ.copy()
+        env["MMTBX_CCP4_MONOMER_LIB"] = self.mmtbx_ccp4_monomer_lib
+        
+        # Step 1: Add hydrogens using mmtbx.reduce2
+        result = subprocess.run(
+            [
+                "mmtbx.reduce2",
+                str(input_pdb),
+                "approach=add", "add_flip_movers=True", f"output.filename={temp_hydrogenated}", "--overwrite"
+            ],
+            capture_output=True,
+            text=True,
+            env=env
+        )
+        
+        self.stdout_reduce = result.stdout
+        self.stderr_reduce = result.stderr
+        self.success_reduce = result.returncode == 0
+        
+        if not self.success_reduce:
+            # Even if reduce2 fails, we'll try to continue if the output file exists
+            if not temp_hydrogenated.exists():
+                # If the file doesn't exist, we can't continue
+                return {
+                    "pdbqt_path": None,
+                    "box_pdb": None,
+                    "box_txt": None
+                } if crystal_ligand_sdf else None
+        
+        # Step 2: Align the hydrogenated structure with the original using PyMOL
+        try:
+            from prody import parsePDB, writePDB, calcCenter
+            from pymol import cmd
+            
+            cmd.reinitialize()
+            cmd.load(str(input_pdb), "Protein")
+            cmd.load(str(temp_hydrogenated), "Protein_H")
+            cmd.align("Protein_H", "Protein")
+            
+            # If crystal ligand is provided, load it and create a combined structure
+            if crystal_ligand_sdf:
+                cmd.load(str(crystal_ligand_sdf), "Crystal")
+                cmd.create("Protein_Crystal", "Protein_H Crystal")
+                cmd.save(str(temp_aligned), "Protein_Crystal")
+                
+                # Parse the aligned structure to extract protein and ligand atoms
+                atoms = parsePDB(str(temp_aligned))
+                receptor_atoms = atoms.select("protein and not water and not hetero")
+                ligand_atoms = atoms.select("not protein and not water")
+                
+                # Write protein atoms to a temporary file
+                writePDB(str(temp_protein), receptor_atoms)
+                
+                # Calculate box center and dimensions based on the ligand
+                center_x, center_y, center_z = calcCenter(ligand_atoms)
+                padding_x, padding_y, padding_z = (10, 10, 10)  # Default padding
+                
+                # Ensure output directory exists
+                output_pdb.parent.mkdir(parents=True, exist_ok=True)
+                
+                # Step 3: Run mk_prepare_receptor.py with box parameters
+                result = subprocess.run(
+                    [
+                        "mk_prepare_receptor.py",
+                        "-i", str(temp_protein),
+                        "-o", str(output_pdb.with_suffix('')),  # Remove suffix to use as base name
+                        "-p", "-v",
+                        "--box_center",
+                        str(center_x), str(center_y), str(center_z),
+                        "--box_size",
+                        str(padding_x), str(padding_y), str(padding_z),
+                        "--allow_bad_res",
+                    ],
+                    capture_output=True,
+                    text=True
+                )
+                
+                self.stdout_meeko = result.stdout
+                self.stderr_meeko = result.stderr
+                self.success_meeko = result.returncode == 0
+                
+                # Read the generated files into variables
+                pdbqt_path = output_pdb.with_suffix('.pdbqt')
+                box_pdb_path = output_pdb.with_suffix('.box.pdb')
+                box_txt_path = output_pdb.with_suffix('.box.txt')
+                
+                # Create a dictionary with file paths and contents
+                result_dict = {
+                    "pdbqt_path": str(pdbqt_path) if pdbqt_path.exists() else None,
+                    "box_pdb": box_pdb_path.read_text() if box_pdb_path.exists() else None,
+                    "box_txt": box_txt_path.read_text() if box_txt_path.exists() else None
+                }
+                
+                # Delete the box files after reading their contents
+                if box_pdb_path.exists():
+                    box_pdb_path.unlink()
+                if box_txt_path.exists():
+                    box_txt_path.unlink()
+                
+                # Clean up temporary files
+                self._cleanup_temp_files([temp_hydrogenated, temp_aligned, temp_protein])
+                
+                return result_dict
+            else:
+                # If no crystal ligand is provided, just save the aligned protein
+                cmd.save(str(temp_aligned), "Protein_H")
+                
+                # Parse the aligned structure to extract protein atoms
+                atoms = parsePDB(str(temp_aligned))
+                receptor_atoms = atoms.select("protein and not water and not hetero")
+                
+                # Write protein atoms to a temporary file
+                writePDB(str(temp_protein), receptor_atoms)
+                
+                # Ensure output directory exists
+                output_pdb.parent.mkdir(parents=True, exist_ok=True)
+                
+                # Step 3: Run mk_prepare_receptor.py without box parameters
+                result = subprocess.run(
+                    [
+                        "mk_prepare_receptor.py",
+                        "-i", str(temp_protein),
+                        "-o", str(output_pdb.with_suffix('')),  # Remove suffix to use as base name
+                        "-p",
+                        "--allow_bad_res",
+                    ],
+                    capture_output=True,
+                    text=True
+                )
+                
+                self.stdout_meeko = result.stdout
+                self.stderr_meeko = result.stderr
+                self.success_meeko = result.returncode == 0
+                
+                # Clean up temporary files
+                self._cleanup_temp_files([temp_hydrogenated, temp_aligned, temp_protein])
+                
+                # Return the path to the prepared protein file
+                pdbqt_path = output_pdb.with_suffix('.pdbqt')
+                return pdbqt_path if pdbqt_path.exists() else None
+        except Exception as e:
+            # Capture any errors from PyMOL or ProDy
+            if 'prody' in str(e).lower():
+                self.prody_error = str(e)
+            elif 'pymol' in str(e).lower():
+                self.pymol_error = str(e)
+            else:
+                # Generic error handling
+                if crystal_ligand_sdf:
+                    return {
+                        "pdbqt_path": None,
+                        "box_pdb": None,
+                        "box_txt": None
+                    }
+                else:
+                    return None
+            
+            # Clean up temporary files
+            self._cleanup_temp_files([temp_hydrogenated, temp_aligned, temp_protein])
+            
+            # Return appropriate structure based on whether crystal_ligand_sdf was provided
+            if crystal_ligand_sdf:
+                return {
+                    "pdbqt_path": None,
+                    "box_pdb": None,
+                    "box_txt": None
+                }
+            else:
+                return None
+    
+    def _cleanup_temp_files(self, file_list):
+        """Helper method to clean up temporary files."""
+        for file_path in file_list:
+            if file_path and file_path.exists():
+                try:
+                    file_path.unlink()
+                except Exception:
+                    pass  # Ignore errors during cleanup
+    
+    def __call__(self, input_pdb: Path, output_pdb: Path, crystal_ligand_sdf: Path = None) -> dict:
+        """
+        Call method that wraps prepare_protein_meeko for easier usage.
+        
+        Args:
+            input_pdb (Path): Path to the input protein file in PDB format.
+            output_pdb (Path): Path to save the prepared protein file.
+            crystal_ligand_sdf (Path, optional): Path to the crystal ligand in SDF format.
+                                               If provided, box dimensions will be calculated.
+        
+        Returns:
+            dict or Path: If crystal_ligand_sdf is provided, returns a dictionary with paths and contents.
+                         Otherwise, returns the path to the prepared protein file in PDBQT format.
+        """
+        return self.prepare_protein_meeko(input_pdb, output_pdb, crystal_ligand_sdf)
