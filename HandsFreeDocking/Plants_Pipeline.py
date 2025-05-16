@@ -133,7 +133,7 @@ class Plants_Docking:
         self.binding_site = (binding_site_center, binding_site_radius)
 
     def _convert_to_mol2(self):
-        ligands_mol2_folder = self.workdir / "Ligands_Mol2"
+        ligands_mol2_folder = self.workdir / "ligands_mol2"
         ligands_mol2_folder.mkdir(exist_ok=True)
         
         if self.toolkit == "cdpkit":
