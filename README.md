@@ -1,10 +1,10 @@
 # ComplexDocking: Molecular Docking Pipeline
 
-A flexible Python package for molecular docking using multiple docking engines (PLANTS, GNINA, and OpenEye).
+A flexible Python package for molecular docking using multiple docking engines (PLANTS, GNINA, RxDock, and OpenEye).
 
 ## Features
 
-- Support for multiple docking engines in a single unified interface
+- Support for multiple docking engines (PLANTS, GNINA, RxDock, OpenEye) in a single unified interface
 - Flexible input formats (SDF or SMILES)
 - Automatic stereoisomer enumeration
 - Choice of molecule preparation toolkit (CDPKit or OpenEye)
@@ -56,7 +56,7 @@ from Wrapper_Docking import PipelineDocking
 # Initialize the docking pipeline
 docking = PipelineDocking(
     workdir=Path("./Docking"),
-    docking_software=["plants", "gnina"],  # Choose one or more: "plants", "gnina", "openeye"
+    docking_software=["plants", "gnina"],  # Choose one or more: "plants", "gnina", "rxdock", "openeye"
     settings=(10, 4),  # (n_conformers, n_cpus)
     protein_pdb=Path("./0_Examples/8gcy.pdb"),
     ligands_input=Path("./0_Examples/some_ligands.sdf"),  # Can be SDF or SMILES file
@@ -104,7 +104,7 @@ from Wrapper_Docking import PipelineDocking
 # Using OpenEye toolkit for ligand preparation
 docking = PipelineDocking(
     workdir=Path("./Docking"),
-    docking_software=["plants", "gnina", "openeye"],
+    docking_software=["plants", "gnina", "rxdock", "openeye"],
     settings=(10, 4),
     protein_pdb=Path("./0_Examples/8gcy.pdb"),
     ligands_input=Path("./0_Examples/some_ligands.sdf"),
@@ -427,6 +427,7 @@ ComplexDocking/
 ├── HandsFreeDocking/
 │   ├── Plants_Pipeline.py   # PLANTS docking implementation
 │   ├── Gnina_Pipeline.py    # GNINA docking implementation 
+│   ├── RxDock_Pipeline.py   # RxDock docking implementation
 │   ├── OpenEye_Pipeline.py  # OpenEye docking implementation
 │   ├── tools/               # Utility functions and helper classes
 │   │   ├── Protein_Preparation.py  # Protein preparation using Protoss
@@ -445,9 +446,10 @@ ComplexDocking/
 
 - PLANTS requires a special environment variable which is set automatically in the Plants_Pipeline.py
 - GNINA should be available in your PATH for Gnina_Pipeline.py to work
+- RxDock requires setting RBT_ROOT environment variable which is handled automatically in RxDock_Pipeline.py
 - OpenEye requires a valid license to use the OpenEye toolkit and docking software
 - Protoss is the default protein protonation method; PDBFixer is available as an alternative
-- The binding site is defined based on the crystal ligand
+- The binding site is defined based on the crystal ligand for all docking methods
 - All docking methods use internal multiprocessing, so the wrapper runs them sequentially
 - Protein minimization requires OpenMM and is computationally intensive; CUDA is recommended for better performance
 - SMINA scoring is automatically extracted when using GNINA docking

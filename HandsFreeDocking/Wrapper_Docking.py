@@ -25,6 +25,7 @@ except ImportError:
 # Import the docking pipelines
 from HandsFreeDocking.Plants_Pipeline import Plants_Docking
 from HandsFreeDocking.Gnina_Pipeline import Gnina_Docking
+from HandsFreeDocking.RxDock_Pipeline import RxDock_Docking
 
 # Try to import OpenEye pipeline, but don't fail if it's not available
 try:
@@ -86,7 +87,7 @@ class PipelineDocking:
         
         self.docking_software = [s.lower() for s in docking_software]
         for software in self.docking_software:
-            if software not in ["plants", "gnina", "openeye"]:
+            if software not in ["plants", "gnina", "openeye", "rxdock"]:
                 raise ValueError(f"Unsupported docking software: {software}")
             
             if software == "openeye" and not OPENEYE_PIPELINE_AVAILABLE:
@@ -343,6 +344,46 @@ class PipelineDocking:
         logger.info(f"OpenEye docking completed with {len(docked_ligands)} results")
         
         return results_df
+        
+    def _run_rxdock_docking(self, ligands_sdf):
+        """Run RxDock docking."""
+        logger.info("Starting RxDock docking")
+        
+        # Create directory for RxDock
+        rxdock_dir = self.workdir / "RxDock"
+        rxdock_dir.mkdir(exist_ok=True)
+        
+        # Initialize RxDock docking pipeline
+        rxdock_pipeline = RxDock_Docking(
+            workdir=rxdock_dir,
+            pdb_ID=self.protein_pdb,
+            crystal_path=self.crystal_sdf,
+            ligands_sdf=ligands_sdf,
+            toolkit=self.toolkit
+        )
+        
+        # Run RxDock docking with specified parameters
+        rxdock_results = rxdock_pipeline.main(
+            n_poses=self.n_confs,
+            n_cpus=self.n_cpus
+        )
+        
+        # Check if we have results directly as a dataframe (RxDock returns results this way)
+        if isinstance(rxdock_results, pd.DataFrame) and not rxdock_results.empty:
+            # Add software name if not already present
+            if "Software" not in rxdock_results.columns:
+                rxdock_results["Software"] = "rxdock"
+                
+            # Ensure protein path is included
+            if "Protein_Path" not in rxdock_results.columns:
+                rxdock_results["Protein_Path"] = str(self.protein_pdb.absolute())
+                
+            logger.info(f"RxDock docking completed with {len(rxdock_results)} results")
+            return rxdock_results
+        else:
+            # If no results, return empty dataframe
+            logger.warning("RxDock docking completed but no results were found")
+            return pd.DataFrame()
     
     def _get_docked_dataframe(self, docked_ligands: List[Path], software: str) -> pd.DataFrame:
         """
@@ -397,6 +438,14 @@ class PipelineDocking:
                     df_list.append(df)
                 else:
                     logger.warning(f"Missing expected column minimizedAffinity in Smina results: {lig_path}")
+                    
+            elif software == "rxdock":
+                # For RxDock, the Score column should already be present from the pipeline
+                if "SCORE" in df.columns:
+                    df = df.rename(columns={"SCORE": "Score"})
+                    df_list.append(df)
+                else:
+                    logger.warning(f"Missing expected column Score in RxDock results: {lig_path}")
         
         # Combine all results
         if df_list:
@@ -432,6 +481,9 @@ class PipelineDocking:
                     
                 elif software == "openeye":
                     results["openeye"] = self._run_openeye_docking(ligands_sdf)
+                    
+                elif software == "rxdock":
+                    results["rxdock"] = self._run_rxdock_docking(ligands_sdf)
             
             except Exception as e:
                 logger.error(f"Error running {software} docking: {str(e)}")
@@ -488,6 +540,9 @@ class PipelineDocking:
                 
                 if software.lower() == "smina":
                     lower_is_better = False
+                    
+                if software.lower() == "rxdock":
+                    lower_is_better = True  # In RxDock, lower scores are better
                 
                 # Apply scaling
                 scaler = MinMaxScaler()
