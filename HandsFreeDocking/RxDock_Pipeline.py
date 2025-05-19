@@ -13,6 +13,7 @@ import biotite.database.rcsb as rcsb
 import biotite.structure as struc
 import biotite.structure.io as strucio
 import biotite.structure.io.pdb as pdb
+from rdkit import Chem
 
 import pandas as pd
 import numpy as np
