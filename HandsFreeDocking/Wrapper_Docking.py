@@ -368,22 +368,33 @@ class PipelineDocking:
             n_cpus=self.n_cpus
         )
         
-        # Check if we have results directly as a dataframe (RxDock returns results this way)
-        if isinstance(rxdock_results, pd.DataFrame) and not rxdock_results.empty:
-            # Add software name if not already present
-            if "Software" not in rxdock_results.columns:
-                rxdock_results["Software"] = "rxdock"
+        # The RxDock_Docking.main returns a dictionary with results
+        if isinstance(rxdock_results, dict) and 'processed_sdf_files' in rxdock_results:
+            # Get the list of updated original SDF files with proper molecule naming
+            processed_sdf_files = rxdock_results.get('processed_sdf_files', [])
+            
+            if processed_sdf_files:
+                logger.info(f"Processing {len(processed_sdf_files)} RxDock SDF files")
                 
-            # Ensure protein path is included
-            if "Protein_Path" not in rxdock_results.columns:
-                rxdock_results["Protein_Path"] = str(self.protein_pdb.absolute())
+                # Use _get_docked_dataframe to process the SDF files
+                # This follows the same pattern as plants, gnina, and other methods
+                rxdock_df = self._get_docked_dataframe(processed_sdf_files, software="rxdock")
                 
-            logger.info(f"RxDock docking completed with {len(rxdock_results)} results")
-            return rxdock_results
-        else:
-            # If no results, return empty dataframe
-            logger.warning("RxDock docking completed but no results were found")
-            return pd.DataFrame()
+                if not rxdock_df.empty:
+                    # Add software name if not already present
+                    if "Software" not in rxdock_df.columns:
+                        rxdock_df["Software"] = "rxdock"
+                        
+                    # Ensure protein path is included
+                    if "Protein_Path" not in rxdock_df.columns:
+                        rxdock_df["Protein_Path"] = str(self.protein_pdb.absolute())
+                    
+                    logger.info(f"RxDock docking completed with {len(rxdock_df)} results")
+                    return rxdock_df
+            
+        # If no results, return empty dataframe
+        logger.warning("RxDock docking completed but no results were found")
+        return pd.DataFrame()
     
     def _get_docked_dataframe(self, docked_ligands: List[Path], software: str) -> pd.DataFrame:
         """

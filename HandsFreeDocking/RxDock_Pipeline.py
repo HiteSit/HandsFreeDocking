@@ -73,10 +73,12 @@ class RxDock_Docking:
         self.rxdock_prm_file: Optional[Path] = None
         self.cavity_file: Optional[Path] = None
 
-        self.docked_output_rxdock: Path = workdir / "output_rxdock"
-        self.docked_output_rxdock.mkdir(exist_ok=True)
+        # Create required directories
+        # rxdock dir / output: for rxdock docking output (consistent with Plants/output)
+        self.docked_output = self.workdir / "output"
+        self.docked_output.mkdir(exist_ok=True, parents=True)
 
-        self.docked_final_dir: Path = workdir / "output"
+        self.docked_final_dir: Path = self.workdir / "output"
         self.docked_final_dir.mkdir(exist_ok=True)
 
         self.docked_rxdock: List[Path] = []
@@ -405,7 +407,7 @@ END_SECTION
         docking_configs = []
         for ligand_sdf in self.ligands_splitted:
             # Output file base name (without extension)
-            output_base = self.docked_output_rxdock / ligand_sdf.stem
+            output_base = self.docked_output / ligand_sdf.stem
             
             # Add to list of configurations - all ligands use the same parameter file
             docking_configs.append((ligand_sdf, self.rxdock_prm_file, output_base))
@@ -458,16 +460,23 @@ END_SECTION
         # Step 6: Process results
         logger.info("Step 6: Processing docking results...")
         
-        # Process each docked ligand
+        # Process each docked ligand by updating the original SDF files with proper naming
         all_results = []
+        processed_sdf_files = []
+        
         for docked_output in self.docked_rxdock:
             try:
-                # Process the docked output
+                # Process the docked output - update the original file
                 converter = Convert_RxDock(docked_output)
-                df = converter.main()
+                df, updated_file = converter.main()
                 
                 if not df.empty:
                     all_results.append(df)
+                
+                # Add the updated file to our list if successful
+                if updated_file:
+                    processed_sdf_files.append(updated_file)
+                    
             except Exception as e:
                 logger.error(f"Error processing results for {docked_output}: {str(e)}")
                 
@@ -477,14 +486,15 @@ END_SECTION
             try:
                 combined_df = pd.concat(all_results, ignore_index=True)
                 
-                # Save to SDF
-                self._save_to_sdf(combined_df, "rxdock_results")
+                logger.info(f"Updated {len(processed_sdf_files)} RxDock output files with proper molecule naming")
+                
             except Exception as e:
                 logger.error(f"Error combining results: {str(e)}")
                 
         return {
             "docked_ligands": self.docked_rxdock,
-            "results_df": combined_df
+            "results_df": combined_df,
+            "processed_sdf_files": processed_sdf_files  # Return the list of updated original SDF files
         }
     
     def runner(self, ligand_sdf: Path, prm_file: Path, output_base: Path, n_poses: int = 50) -> Optional[Path]:
@@ -551,15 +561,18 @@ END_SECTION
 
 
 class Convert_RxDock:
-    def __init__(self, rxdock_output: Path):
+    def __init__(self, rxdock_output: Path, output_dir: Optional[Path] = None):
         """
         Initialize the Convert_RxDock class for processing RxDock output
         
         Args:
             rxdock_output: Path to RxDock output file (.sd)
+            output_dir: Directory to save processed output files (defaults to parent dir of rxdock_output)
         """
         self.rxdock_output = rxdock_output
         self.rxdock_dir: Path = self.rxdock_output.parent
+        self.output_dir: Path = output_dir if output_dir else self.rxdock_dir
+        self.processed_files: List[Path] = []
         
     def get_rdmol_df(self) -> pd.DataFrame:
         """
@@ -617,9 +630,13 @@ class Convert_RxDock:
             # Select only the score columns and LIGAND_ENTRY
             score_df = mols_df[["LIGAND_ENTRY"] + score_cols]
             
-            # Rename the primary score column to 'Score' for consistency
+            # IMPORTANT: Keep the original SCORE column (don't rename to 'Score') 
+            # This ensures it's recognized by Wrapper_Docking._get_docked_dataframe
+            # Add a separate Score column for internal use if needed
             main_score_col = [col for col in score_cols if 'SCORE' in col.upper()][0]
-            score_df = score_df.rename(columns={main_score_col: "Score"})
+            if main_score_col != "SCORE":
+                # If the main score column isn't exactly "SCORE", rename it
+                score_df["SCORE"] = score_df[main_score_col]
             
             logger.info(f"Found scores for {len(score_df)} poses")
             return score_df
@@ -628,12 +645,71 @@ class Convert_RxDock:
             logger.error(f"Error retrieving scores: {str(e)}")
             return pd.DataFrame()
     
-    def main(self) -> pd.DataFrame:
+    def update_sdf_file(self, df: pd.DataFrame) -> Optional[Path]:
         """
-        Process docked ligands and merge with scores
+        Update the RxDock output SDF file with proper molecule naming convention.
+        Instead of creating multiple files, this updates the original file with proper
+        molecule names for each pose within the same file.
+        
+        Args:
+            df: DataFrame with molecules and scores
+            
+        Returns:
+            Path to the updated SDF file or None if failed
+        """
+        try:
+            if df.empty:
+                logger.warning("No data to update in SDF file")
+                return None
+                
+            base_name = self.rxdock_output.stem
+            molecules = []
+            
+            # Reset the index after sorting to ensure pose numbers match sorted order
+            df = df.reset_index(drop=True)
+            
+            # For each molecule in the dataframe
+            for i, row in df.iterrows():
+                # Get molecule
+                mol = row["Molecule"]
+                
+                # Set the name property with proper convention: {base_name}_RxDock-P{i+1}
+                pose_name = f"{base_name}_RxDock-P{i+1}"
+                mol.SetProp("_Name", pose_name)  # Set the molecule name property
+                mol.SetProp("LIGAND_ENTRY", pose_name)  # Also set as a property for dataframe
+                
+                # Make sure SCORE is set properly
+                if "SCORE" in row and not pd.isna(row["SCORE"]):
+                    # Keep the original SCORE property (important for _get_docked_dataframe)
+                    if not mol.HasProp("SCORE"):
+                        mol.SetProp("SCORE", str(row["SCORE"]))
+                
+                # Add software property
+                mol.SetProp("Software", "rxdock")
+                
+                # Add molecule to the list
+                molecules.append(mol)
+            
+            # Write all molecules back to the original file
+            with dm.without_rdkit_log():
+                dm.to_sdf(molecules, self.rxdock_output)
+            
+            logger.info(f"Updated SDF file with {len(molecules)} properly named poses: {self.rxdock_output}")
+            return self.rxdock_output
+            
+        except Exception as e:
+            logger.error(f"Error updating SDF file: {str(e)}")
+            return None
+    
+    def main(self) -> Tuple[pd.DataFrame, Optional[Path]]:
+        """
+        Process docked ligands, merge with scores, and update the original SDF file
+        with proper molecule naming conventions for each pose.
         
         Returns:
-            DataFrame with docked poses and scores
+            Tuple containing:
+                - DataFrame with docked poses and scores
+                - Path to the updated SDF file or None if failed
         """
         # Get molecules
         rdmol_df = self.get_rdmol_df()
@@ -644,7 +720,7 @@ class Convert_RxDock:
         # Merge molecules and scores
         if rdmol_df.empty or score_df.empty:
             logger.warning("Either molecules or scores are missing")
-            return pd.DataFrame()
+            return pd.DataFrame(), None
             
         try:
             # Merge on LIGAND_ENTRY
@@ -653,23 +729,32 @@ class Convert_RxDock:
             # Process names to match standard format
             base_name = self.rxdock_output.stem
             
-            # Format entry names: {base_name}_RxDock-P{pose_number}
+            # Format entry names: {base_name}_RxDock-P{i+1}
             comb_df["LIGAND_ENTRY"] = [f"{base_name}_RxDock-P{i+1}" for i in range(len(comb_df))]
             
-            # Add software name for identification
-            comb_df["Software"] = "RxDock"
+            # Add software name for identification (lowercase for consistency with Wrapper_Docking)
+            comb_df["Software"] = "rxdock"
             
             # Add protein path for reference
             comb_df["Protein_Path"] = str(self.rxdock_output)
             
             # Sort by score (lower is better for RxDock)
-            comb_df = comb_df.sort_values("Score", ascending=True)
+            if "SCORE" in comb_df.columns:
+                comb_df = comb_df.sort_values("SCORE", ascending=True)
             
-            return comb_df
+            # Update the original SDF file with proper molecule naming
+            updated_file = self.update_sdf_file(comb_df)
+            
+            # If update was successful, add to processed_files list
+            if updated_file:
+                self.processed_files = [updated_file]
+                logger.info(f"Successfully updated RxDock output file: {updated_file}")
+            
+            return comb_df, updated_file
             
         except Exception as e:
-            logger.error(f"Error merging data: {str(e)}")
-            return pd.DataFrame()
+            logger.error(f"Error processing RxDock output: {str(e)}")
+            return pd.DataFrame(), None
 
 
 if __name__ == "__main__":
