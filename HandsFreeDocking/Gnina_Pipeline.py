@@ -453,7 +453,9 @@ class Gnina_Docking:
             """
             log_file_path = self.workdir / "gnina_commands.log"
             with open(log_file_path, "a") as log_file:
-                subprocess.run(command_lst, check=True, text=True, cwd=self.workdir, stdout=log_file, stderr=log_file)
+                env = os.environ.copy()
+                env["PATH"] = "/home/hitesit/Software/gnina:" + env.get("PATH", "")
+                subprocess.run(command_lst, check=True, text=True, cwd=self.workdir, stdout=log_file, stderr=log_file, env=env)
 
         logger.info(f"Running {len(gnina_commands)} gnina commands")
         for command in gnina_commands:
