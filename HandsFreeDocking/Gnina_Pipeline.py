@@ -410,7 +410,7 @@ class Gnina_Docking:
                 "--full_flex_output",  # Output full flexible receptor
                 '--out_flex', str(output_ligand_flex),  # Path for flexible receptor output
                 "-o", str(output_ligand),  # Path for docked poses output
-                "--no_gpu"  # Don't use GPU (CPU only)
+                # "--no_gpu"  # Don't use GPU (CPU only)
             ]
         else:
             # Standard non-covalent docking with simpler parameters
@@ -422,7 +422,7 @@ class Gnina_Docking:
                 f"--out", str(output_ligand),  # Path for docked poses output
                 "--cpu", str(n_cpu),  # Number of CPU cores to use
                 "--num_modes", str(n_confs),  # Number of binding modes to generate
-                "--no_gpu"  # Don't use GPU (CPU only)
+                # "--no_gpu"  # Don't use GPU (CPU only)
             ]
 
     def _run_gnina_commands(self, gnina_commands: List[List[str]]) -> None:
