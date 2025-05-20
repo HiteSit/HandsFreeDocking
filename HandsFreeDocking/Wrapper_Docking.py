@@ -508,6 +508,22 @@ class PipelineDocking:
     def concat_df(self) -> pd.DataFrame:
         """
         Concatenate results from different docking software with normalized scores.
+        
+        Scoring normalization logic:
+        1. Each docking software uses a different scoring function with its own scale and direction
+        2. 'negative_scoring' indicates whether more negative scores are better (TRUE) or 
+           whether higher positive scores are better (FALSE)
+        3. All scores are normalized to [0,1] range using MinMaxScaler
+        4. If a software uses negative scoring (more negative = better), values are inverted (1-score)
+        5. After normalization, ALL scores follow the SAME convention: 
+           higher normalized values (closer to 1) = better docking results
+           
+        Software-specific scoring directions:
+        - Gnina: Higher positive scores are better (negative_scoring = FALSE)
+        - Smina: Higher positive scores are better (negative_scoring = FALSE)
+        - Plants: Higher positive scores are better (negative_scoring = FALSE) [CUSTOM]
+        - RxDock: More negative scores are better (negative_scoring = TRUE)
+        - OpenEye: More negative scores are better (negative_scoring = TRUE)
         """
         required_cols = ["ID", "Score", "Molecule", "Software", "Protein_Path"]
         df_list = []
@@ -539,30 +555,35 @@ class PipelineDocking:
                         continue
             except Exception as e:
                 print(f"Error processing scores for {software}: {str(e)}")
-                continue
-                
-            # Determine score direction
+                continue                # Determine score direction
             if len(df_copy) > 0:
                 mean_score = df_copy["Score"].mean()
-                lower_is_better = mean_score < 0
+                negative_scoring = mean_score < 0  # Default: guess direction based on mean
                 
+                # Override with known scoring directions for each software
                 if software.lower() == "gnina":
-                    lower_is_better = False
+                    negative_scoring = False  # For Gnina, higher positive scores are better
                 
                 if software.lower() == "smina":
-                    lower_is_better = False
+                    negative_scoring = True  # For Smina, lower negative scores are better
+                    
+                if software.lower() == "plants":
+                    negative_scoring = False  # For Plants, higher positive scores are better
                     
                 if software.lower() == "rxdock":
-                    lower_is_better = True  # In RxDock, lower scores are better
+                    negative_scoring = True   # For RxDock, more negative scores are better
+                    
+                if software.lower() == "openeye":
+                    negative_scoring = True   # For OpenEye, more negative PLP scores are better
                 
                 # Apply scaling
                 scaler = MinMaxScaler()
                 scores = df_copy[["Score"]].values
                 scaled_scores = scaler.fit_transform(scores)
                 
-                # Invert if lower score is better
-                if lower_is_better:
-                    scaled_scores = 1 - scaled_scores
+                # Invert if negative scoring (more negative = better)
+                if negative_scoring:
+                    scaled_scores = 1 - scaled_scores  # Invert so that all scores follow the convention: higher normalized values are better
                     
                 df_copy["Score"] = scaled_scores
             
