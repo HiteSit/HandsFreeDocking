@@ -1,11 +1,11 @@
 # IDE and Editor files
-.cursor
-.vscode
-.idea
+.cursor/
+.vscode/
+.idea/
 **__pycache__
 
 # Version Control
-.github
+.github/
 
 # Application specific directories
 **TMP_Docking*
