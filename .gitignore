@@ -1,6 +1,12 @@
+# IDE and Editor files
 .cursor
 .vscode
+.idea
+**__pycache__
+
+# Version Control
 .github
-**/TMP_Docking*
-**/gnina
-**/.idea
+
+# Application specific directories
+**TMP_Docking*
+**gnina
