@@ -3,6 +3,7 @@
 .vscode/
 .idea/
 **__pycache__
+**.pytest_cache/
 
 # Version Control
 .github/
