@@ -103,7 +103,8 @@ class TestPipelineDockingIntegration:
             protein_pdb=protein_pdb,
             ligands_input=ligands_sdf,
             crystal_sdf=crystal_sdf,
-            protonation_method=protonation_method_ligand
+            protonation_method=protonation_method_ligand,
+            tautomer_score_threshold=None  # Default: only best tautomers
         )
         
         # Run the docking

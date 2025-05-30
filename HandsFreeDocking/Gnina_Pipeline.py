@@ -34,7 +34,7 @@ Dependencies:
 import os
 import subprocess
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from multiprocessing import Pool
 from tempfile import gettempdir
 
@@ -104,7 +104,8 @@ class Gnina_Docking:
     """
     
     def __init__(self, workdir: Path, pdb_ID: Path, crystal_path: Path, ligands_sdf: Path, 
-                protonation_method: str = "cdp", protein_protonation_method: str = "protoss"):
+                protonation_method: str = "cdp", protein_protonation_method: str = "protoss", 
+                tautomer_score_threshold: Optional[float] = None):
         """
         Initialize the Gnina docking pipeline with all necessary parameters and directories
         
@@ -117,6 +118,7 @@ class Gnina_Docking:
             protein_protonation_method (str): Method to protonate the protein, options:
                                      - "protoss": Use Protoss (default, requires license)
                                      - "pdbfixer": Use PDBFixer (open source)
+            tautomer_score_threshold: Score threshold for tautomer selection (None = best only, value = list within threshold)
         
         Raises:
             ValueError: If an invalid protonation method is specified
@@ -143,6 +145,7 @@ class Gnina_Docking:
         if protonation_method.lower() not in ["cdp", "oe", "scrubber"]:
             raise ValueError(f"Ligand protonation method must be 'cdp', 'oe', or 'scrubber', got {protonation_method}")
         self.protonation_method = protonation_method.lower()
+        self.tautomer_score_threshold = tautomer_score_threshold
             
         # Set the protein protonation method
         if protein_protonation_method.lower() not in ["pdbfixer", "protoss"]:
@@ -250,7 +253,7 @@ class Gnina_Docking:
         preparator = LigandPreparator(
             protonation_method=self.protonation_method,
             enumerate_stereo=True,
-            enumerate_tautomers=False,  # No tautomer enumeration by default
+            tautomer_score_threshold=self.tautomer_score_threshold,
             generate_3d=True
         )
         

@@ -1,7 +1,7 @@
 import os
 import shutil
 from pathlib import Path
-from typing import List, Tuple, Dict, Any, Union
+from typing import List, Tuple, Dict, Any, Union, Optional
 import tempfile
 import sys
 
@@ -63,7 +63,8 @@ class PipelineDocking:
                 protein_pdb: Path, 
                 ligands_input: Path, 
                 crystal_sdf: Path,
-                protonation_method: str = "cdp"):
+                protonation_method: str = "cdp",
+                tautomer_score_threshold: Optional[float] = None):
         """
         Initialize the PipelineDocking wrapper.
         
@@ -75,6 +76,7 @@ class PipelineDocking:
             ligands_input: Path to the ligands file (SDF or SMILES)
             crystal_sdf: Path to the crystal ligand SDF file
             protonation_method: Method for protonating ligands ("cdp", "oe", or "scrubber")
+            tautomer_score_threshold: Score threshold for tautomer selection (None = best only, value = list within threshold)
         """
         # Validate inputs
         self.workdir = workdir
@@ -103,6 +105,8 @@ class PipelineDocking:
             self.protonation_method = "cdp"
         else:
             self.protonation_method = protonation_method.lower()
+        
+        self.tautomer_score_threshold = tautomer_score_threshold
         
         # Detect input format
         self.input_format = self._detect_input_format()
@@ -185,7 +189,7 @@ class PipelineDocking:
             preparator = LigandPreparator(
                 protonation_method=self.protonation_method,
                 enumerate_stereo=True,
-                enumerate_tautomers=False,
+                tautomer_score_threshold=self.tautomer_score_threshold,
                 generate_3d=True
             )
             
@@ -238,7 +242,8 @@ class PipelineDocking:
             pdb_ID=self.protein_pdb,
             crystal_path=self.crystal_sdf,
             ligands_sdf=ligands_sdf,
-            protonation_method=self.protonation_method
+            protonation_method=self.protonation_method,
+            tautomer_score_threshold=self.tautomer_score_threshold
         )
         
         plants_pipeline.main(n_confs=self.n_confs, n_cpus=self.n_cpus)
@@ -267,7 +272,8 @@ class PipelineDocking:
             crystal_path=self.crystal_sdf,
             ligands_sdf=ligands_sdf,
             protonation_method=self.protonation_method,
-            protein_protonation_method="protoss"  # Default protein protonation method
+            protein_protonation_method="protoss",  # Default protein protonation method
+            tautomer_score_threshold=self.tautomer_score_threshold
         )
         
         gnina_pipeline.non_covalent_run(n_confs=self.n_confs, n_cpus=self.n_cpus)
@@ -347,7 +353,8 @@ class PipelineDocking:
             pdb_ID=self.protein_pdb,
             crystal_path=self.crystal_sdf,
             ligands_sdf=ligands_sdf,
-            protonation_method=self.protonation_method
+            protonation_method=self.protonation_method,
+            tautomer_score_threshold=self.tautomer_score_threshold
         )
         
         # Run RxDock docking with specified parameters

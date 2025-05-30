@@ -68,7 +68,6 @@ class LigandPreparator:
     def __init__(self, 
                  protonation_method: str = "cdp",
                  enumerate_stereo: bool = True,
-                 enumerate_tautomers: bool = False,
                  tautomer_score_threshold: Optional[float] = None,
                  generate_3d: bool = True):
         """
@@ -77,13 +76,11 @@ class LigandPreparator:
         Args:
             protonation_method: Method for protonation ("cdp", "oe", or "scrubber")
             enumerate_stereo: Whether to enumerate stereoisomers
-            enumerate_tautomers: Whether to enumerate tautomers
-            tautomer_score_threshold: Score threshold for tautomer selection (None = best only)
+            tautomer_score_threshold: Score threshold for tautomer selection (None = best only, value = list within threshold)
             generate_3d: Whether to generate 3D conformations
         """
         self.protonation_method = protonation_method.lower()
         self.enumerate_stereo = enumerate_stereo
-        self.enumerate_tautomers = enumerate_tautomers
         self.tautomer_score_threshold = tautomer_score_threshold
         self.generate_3d = generate_3d
         
@@ -185,24 +182,23 @@ class LigandPreparator:
             mol.SetProp("_Name", base_name)
             stereo_mols = [mol]
         
-        # Step 3: Tautomer enumeration (if enabled)
+        # Step 3: Tautomer enumeration 
         final_molecules = []
         for stereo_mol in stereo_mols:
-            if self.enumerate_tautomers:
-                tautomers = self._get_best_tautomers(stereo_mol)
-                
-                # Update names for tautomers
-                stereo_name = stereo_mol.GetProp("_Name")
-                for j, taut in enumerate(tautomers):
+            stereo_name = stereo_mol.GetProp("_Name")
+            tautomer_result = self._get_best_tautomer(stereo_mol)
+            
+            if isinstance(tautomer_result, list):
+                # Multiple tautomers returned (when tautomer_score_threshold is provided)
+                for j, taut in enumerate(tautomer_result):
                     taut_name = f"{stereo_name}_Taut{j}"
                     taut.SetProp("_Name", taut_name)
                     final_molecules.append(taut)
             else:
-                # Just get the single best tautomer
-                best_taut = self._get_best_tautomer(stereo_mol)
-                if best_taut is not None:
-                    best_taut.SetProp("_Name", stereo_mol.GetProp("_Name"))
-                    final_molecules.append(best_taut)
+                # Single tautomer returned (when tautomer_score_threshold is None)
+                if tautomer_result is not None:
+                    tautomer_result.SetProp("_Name", stereo_name)
+                    final_molecules.append(tautomer_result)
                 else:
                     final_molecules.append(stereo_mol)
         
@@ -356,45 +352,7 @@ class LigandPreparator:
         
         return annotated_isomers
     
-    def _get_best_tautomer(self, mol: Chem.Mol) -> Optional[Chem.Mol]:
-        """
-        Get the single best tautomer of a molecule.
-        
-        Args:
-            mol: RDKit molecule
-            
-        Returns:
-            Best tautomer or None if enumeration fails
-        """
-        params = rdMolStandardize.CleanupParameters()
-        params.maxTautomers = 1000
-        params.tautomerRemoveSp3Stereo = False
-        params.tautomerRemoveBondStereo = False
-        params.tautomerRemoveIsotopicHs = False
-
-        enumerator = rdMolStandardize.TautomerEnumerator(params)
-        tautomers = list(enumerator.Enumerate(mol))
-
-        if len(tautomers) == 0:
-            logger.warning("No tautomers found for the input molecule.")
-            return mol
-        
-        # Score all tautomers and find the best
-        best_score = -float('inf')
-        best_taut = None
-        
-        for taut in tautomers:
-            score = enumerator.ScoreTautomer(taut)
-            if score > best_score:
-                best_score = score
-                best_taut = taut
-        
-        if best_taut:
-            best_taut.SetProp("TautomerScore", str(best_score))
-        
-        return best_taut
-    
-    def _get_best_tautomers(self, mol: Chem.Mol) -> List[Chem.Mol]:
+    def _get_best_tautomer(self, mol: Chem.Mol) -> Union[Chem.Mol, List[Chem.Mol], None]:
         """
         Get the best tautomer(s) of a molecule based on score threshold.
         
@@ -402,14 +360,10 @@ class LigandPreparator:
             mol: RDKit molecule
             
         Returns:
-            List of best tautomers
+            If tautomer_score_threshold is None: Single best tautomer (Chem.Mol)
+            If tautomer_score_threshold is provided: List of tautomers within threshold (List[Chem.Mol])
+            Returns None (single mode) or empty list (list mode) if no tautomers are found.
         """
-        if self.tautomer_score_threshold is None:
-            # Return single best tautomer
-            best_taut = self._get_best_tautomer(mol)
-            return [best_taut] if best_taut else [mol]
-        
-        # Enumerate and score tautomers
         params = rdMolStandardize.CleanupParameters()
         params.maxTautomers = 1000
         params.tautomerRemoveSp3Stereo = False
@@ -421,7 +375,7 @@ class LigandPreparator:
 
         if len(tautomers) == 0:
             logger.warning("No tautomers found for the input molecule.")
-            return [mol]
+            return [] if self.tautomer_score_threshold is not None else mol
         
         # Score all tautomers and find the best score
         scored_tautomers = []
@@ -433,14 +387,22 @@ class LigandPreparator:
             if score > best_score:
                 best_score = score
         
-        # Return all tautomers within the threshold
-        selected_tautomers = []
-        for taut, score in scored_tautomers:
-            if abs(score - best_score) <= self.tautomer_score_threshold:
-                taut.SetProp("TautomerScore", str(score))
-                selected_tautomers.append(taut)
-        
-        return selected_tautomers if selected_tautomers else [mol]
+        if self.tautomer_score_threshold is None:
+            # Return only the single best tautomer
+            for taut, score in scored_tautomers:
+                if score == best_score:
+                    taut.SetProp("TautomerScore", str(score))
+                    return taut
+        else:
+            # Return all tautomers within the threshold as a list
+            selected_tautomers = []
+            for taut, score in scored_tautomers:
+                if abs(score - best_score) <= self.tautomer_score_threshold:
+                    taut.SetProp("TautomerScore", str(score))
+                    selected_tautomers.append(taut)
+            
+            return selected_tautomers if selected_tautomers else []
+    
     
     def _generate_3d_conformation(self, mol: Chem.Mol) -> Optional[Chem.Mol]:
         """

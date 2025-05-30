@@ -37,7 +37,8 @@ class TestRxDockPipeline:
             pdb_ID=protein_pdb,
             crystal_path=crystal_sdf,
             ligands_sdf=ligands_sdf,
-            protonation_method=protonation_method_ligand
+            protonation_method=protonation_method_ligand,
+            tautomer_score_threshold=2.0  # Enable tautomer enumeration for RxDock
         )
         
         # Run the pipeline
@@ -98,7 +99,8 @@ class TestPlantsPipeline:
             pdb_ID=protein_pdb,
             crystal_path=crystal_sdf,
             ligands_sdf=ligands_sdf,
-            protonation_method=protonation_method_ligand
+            protonation_method=protonation_method_ligand,
+            tautomer_score_threshold=None  # Default: only best tautomers
         )
         
         # Run the pipeline
@@ -165,7 +167,8 @@ class TestGninaPipeline:
             crystal_path=crystal_sdf,
             ligands_sdf=ligands_sdf,
             protonation_method=protonation_method_ligand,
-            protonation_method_protein=protein_protonation_method
+            protein_protonation_method=protein_protonation_method,
+            tautomer_score_threshold=None  # Default: only best tautomers
         )
         
         # Run the non-covalent pipeline

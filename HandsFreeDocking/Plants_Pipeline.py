@@ -1,7 +1,7 @@
 import os
 import shutil
 import subprocess
-from typing import List, Tuple, Dict, Any, Union
+from typing import List, Tuple, Dict, Any, Union, Optional
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from tempfile import gettempdir
@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 class Plants_Docking:
     def __init__(self, workdir: Path, pdb_ID: Path, crystal_path: Path, ligands_sdf: Path, 
-                protonation_method: str = "cdp"):
+                protonation_method: str = "cdp", tautomer_score_threshold: Optional[float] = None):
         """
         Initialize the Plants docking pipeline
         
@@ -53,6 +53,7 @@ class Plants_Docking:
             crystal_path: Path to the crystal ligand file
             ligands_sdf: Path to the ligands SDF file
             protonation_method: Method for protonating ligands ("cdp", "oe", or "scrubber")
+            tautomer_score_threshold: Score threshold for tautomer selection (None = best only, value = list within threshold)
         """
         self.workdir = workdir
         self.workdir.mkdir(exist_ok=True)
@@ -78,6 +79,7 @@ class Plants_Docking:
             raise ValueError(f"Protonation method must be 'cdp', 'oe', or 'scrubber', got {protonation_method}")
         
         self.protonation_method = protonation_method.lower()
+        self.tautomer_score_threshold = tautomer_score_threshold
 
         self._plants_env_variable()
 
@@ -131,7 +133,7 @@ class Plants_Docking:
         preparator = LigandPreparator(
             protonation_method=self.protonation_method,
             enumerate_stereo=True,
-            enumerate_tautomers=False,  # No tautomer enumeration by default
+            tautomer_score_threshold=self.tautomer_score_threshold,
             generate_3d=True
         )
         
@@ -375,5 +377,5 @@ if __name__ == "__main__":
     ligands_sdf = Path("./0_Examples/some_ligands.sdf")
 
     # Initialize and run the Plants docking pipeline
-    plants_pipeline = Plants_Docking(workdir, pdb_ID, crystal_path, ligands_sdf, protonation_method="oe")
+    plants_pipeline = Plants_Docking(workdir, pdb_ID, crystal_path, ligands_sdf, protonation_method="oe", tautomer_score_threshold=None)
     plants_pipeline.main(n_confs=10, n_cpus=2)

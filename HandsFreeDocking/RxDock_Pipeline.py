@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 class RxDock_Docking:
     def __init__(self, workdir: Path, pdb_ID: Path, crystal_path: Path, ligands_sdf: Path, 
-                protonation_method: str = "cdp"):
+                protonation_method: str = "cdp", tautomer_score_threshold: Optional[float] = None):
         """
         Initialize the RxDock docking pipeline
         
@@ -47,6 +47,7 @@ class RxDock_Docking:
             crystal_path: Path to the crystal ligand file
             ligands_sdf: Path to the ligands SDF file
             protonation_method: Method for protonating ligands ("cdp", "oe", or "scrubber")
+            tautomer_score_threshold: Score threshold for tautomer selection (None = best only, value = list within threshold)
         """
         self.workdir = workdir
         self.workdir.mkdir(exist_ok=True)
@@ -75,6 +76,7 @@ class RxDock_Docking:
             raise ValueError(f"Protonation method must be 'cdp', 'oe', or 'scrubber', got {protonation_method}")
         
         self.protonation_method = protonation_method.lower()
+        self.tautomer_score_threshold = tautomer_score_threshold
 
         self._rxdock_env_variable()
 
@@ -248,7 +250,7 @@ END_SECTION
         preparator = LigandPreparator(
             protonation_method=self.protonation_method,
             enumerate_stereo=True,
-            enumerate_tautomers=False,
+            tautomer_score_threshold=self.tautomer_score_threshold,
             generate_3d=True
         )
         
@@ -702,5 +704,5 @@ if __name__ == "__main__":
     ligands_sdf = Path("./0_Examples/some_ligands.sdf")
 
     # Initialize and run the RxDock docking pipeline
-    rxdock_pipeline = RxDock_Docking(workdir, pdb_ID, crystal_path, ligands_sdf, protonation_method="cdp")
+    rxdock_pipeline = RxDock_Docking(workdir, pdb_ID, crystal_path, ligands_sdf, protonation_method="cdp", tautomer_score_threshold=2.0)
     rxdock_pipeline.main(n_poses=10, n_cpus=2)
