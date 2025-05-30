@@ -80,3 +80,58 @@ The package relies on several external tools that must be installed:
 ### Development Reminders
 
 - When running any script or Python-related task, **always ensure that the `cheminf_3_11` environment is activated**
+
+## Recent Changes and Refactoring
+
+### Tautomer Enumeration Refactoring (Session: January 2025)
+
+#### Problem Identified
+The original `LigandPreparator` class had a conceptually incorrect design with two separate methods (`_get_best_tautomer` and `_get_best_tautomers`) and a confusing `enumerate_tautomers` boolean parameter. This didn't match the elegant single-parameter design from the original notebook prototype.
+
+#### Changes Made
+
+**1. Core `LigandPreparator` Class (`HandsFreeDocking/tools/Ligand_Preparation.py`)**
+- **Removed**: `enumerate_tautomers: bool` parameter from `__init__`
+- **Unified**: Single `_get_best_tautomer` method that behaves like the original notebook function:
+  - `tautomer_score_threshold=None` → returns single best tautomer (`Chem.Mol`)
+  - `tautomer_score_threshold=value` → returns list of tautomers within threshold (`List[Chem.Mol]`)
+- **Removed**: `_get_best_tautomers` method entirely
+- **Updated**: `_process_single_molecule` to handle both single molecule and list returns
+- **Fixed**: Naming convention to properly create `{base_name}_Iso{i}_Taut{j}` for combinatorial explosion
+
+**2. Pipeline Classes Updated**
+All docking pipeline classes now accept `tautomer_score_threshold: Optional[float] = None`:
+- `RxDock_Pipeline.py`: Added parameter, removed `enumerate_tautomers=False` usage
+- `Plants_Pipeline.py`: Added parameter, removed `enumerate_tautomers=False` usage  
+- `Gnina_Pipeline.py`: Added parameter, removed `enumerate_tautomers=False` usage
+- **Design principle**: No defaults in pipeline classes - they receive values from wrapper
+
+**3. Wrapper Integration (`HandsFreeDocking/Wrapper_Docking.py`)**
+- **Added**: `tautomer_score_threshold: Optional[float] = None` parameter (ONLY place with default)
+- **Updated**: All pipeline instantiations to pass the parameter
+- **Updated**: `_process_input_to_sdf` method to pass parameter to `LigandPreparator`
+
+**4. Test Updates**
+- **RxDock tests**: Use `tautomer_score_threshold=2.0` (enables multiple tautomers per stereoisomer)
+- **Plants/Gnina tests**: Use `tautomer_score_threshold=None` (default: best tautomer only)
+- **Integration tests**: Updated to pass the new parameter
+
+**5. Import Fixes**
+- **Added**: `Optional` type hints to all necessary files
+- **Updated**: Import statements in pipeline and wrapper files
+
+#### Naming Convention Results
+- `tautomer_score_threshold=None`: `Ligand_A_Iso0`, `Ligand_A_Iso1` (no Taut suffix)
+- `tautomer_score_threshold=2.0`: `Ligand_A_Iso0_Taut0`, `Ligand_A_Iso0_Taut1`, `Ligand_A_Iso1_Taut0` (combinatorial explosion)
+
+#### Verification
+- **Tests passed**: RxDock pipeline tests completed successfully
+- **Backward compatibility**: Maintained for existing workflows
+- **Parameter exposure**: Tautomer control now available at wrapper level for easy tuning
+
+#### Key Benefits
+1. **Unified Interface**: Single method matches original notebook design
+2. **Correct Combinatorial Logic**: Proper stereoisomer → tautomer enumeration flow  
+3. **Flexible Control**: Parameter exposed at wrapper level for easy configuration
+4. **Consistent Naming**: Clear `_Iso{i}_Taut{j}` pattern for tracking molecule variants
+5. **Maintains Defaults**: Existing pipelines continue to work with sensible defaults
