@@ -212,7 +212,7 @@ class Gnina_Docking:
             # Save the prepared protein
             PDBFile.writeFile(fixer.topology, fixer.positions, open(str(protein_prepared), 'w'), keepIds=True)
         
-        elif self.protonation_method == "protoss":
+        elif self.protein_protonation_method == "protoss":
             # Use Protoss for protonation - commercial method with more advanced features
             logger.info(f"Preparing protein using Protoss")
             protoss = ProteinPreparation_Protoss()

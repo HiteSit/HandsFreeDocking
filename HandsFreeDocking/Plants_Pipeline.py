@@ -188,7 +188,7 @@ cluster_rmsd 1.0
         return conf_path
 
     def _save_to_sdf(self, df: pd.DataFrame, name: str):
-        docked_final_sdf = self.docked_final_dir / f"{name}_Plants.sdf"
+        docked_final_sdf = self.docked_final_dir / f"{name}.sdf"
         docked_final_sdf = docked_final_sdf.absolute()
         PandasTools.WriteSDF(df, str(docked_final_sdf),
                              idName="LIGAND_ENTRY", molColName="Molecule",
