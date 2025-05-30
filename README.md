@@ -6,7 +6,11 @@ A flexible Python package for molecular docking using multiple docking engines (
 
 - Support for multiple docking engines (PLANTS, GNINA, RxDock, OpenEye) in a single unified interface
 - Flexible input formats (SDF or SMILES)
-- Automatic stereoisomer enumeration
+- Unified ligand preparation pipeline with support for:
+  - Automatic stereoisomer enumeration
+  - Tautomer enumeration (optional with configurable score threshold)
+  - Multiple protonation methods (CDPKit, OpenEye, or Scrubber)
+  - 3D conformation generation
 - Choice of molecule preparation toolkit (CDPKit or OpenEye)
 - Choice of protein protonation method (PDBFixer or Protoss)
 - Collection of results in pandas DataFrames
@@ -24,10 +28,12 @@ A flexible Python package for molecular docking using multiple docking engines (
 - OpenBabel/PyBel
 - CDPKit (for ligand preparation)
 - OpenEye toolkit (optional, for alternative ligand preparation)
+- Scrubber (optional, for alternative protonation method)
 - Protoss (default for protein protonation)
 - PDBFixer (alternative for protein protonation)
 - PLANTS docking software
 - GNINA docking software
+- RxDock docking software
 - OpenEye docking software (optional)
 - OpenMM (for protein-ligand complex minimization)
 - Scikit-learn (for clustering)
@@ -254,7 +260,7 @@ for idx, row in minimized_df.iterrows():
 
 ```python
 from pathlib import Path
-from src.Plants_Pipeline import Plants_Docking
+from HandsFreeDocking.Plants_Pipeline import Plants_Docking
 
 # Initialize and run Plants docking
 plants_docking = Plants_Docking(
@@ -272,7 +278,7 @@ plants_docking.main(n_confs=10, n_cpus=4)
 
 ```python
 from pathlib import Path
-from src.Gnina_Pipeline import Gnina_Docking
+from HandsFreeDocking.Gnina_Pipeline import Gnina_Docking
 
 # Initialize and run Gnina docking (non-covalent)
 gnina_docking = Gnina_Docking(
@@ -300,7 +306,7 @@ gnina_docking.covalent_run(
 
 ```python
 from pathlib import Path
-from src.OpenEye_Pipeline import OpenEye_Docking
+from HandsFreeDocking.OpenEye_Pipeline import OpenEye_Docking
 
 # Prepare ligands as (SMILES, ID) tuples
 docking_tuple = [
@@ -430,8 +436,12 @@ ComplexDocking/
 │   ├── RxDock_Pipeline.py   # RxDock docking implementation
 │   ├── OpenEye_Pipeline.py  # OpenEye docking implementation
 │   ├── tools/               # Utility functions and helper classes
+│   │   ├── Ligand_Preparation.py   # Unified ligand preparation module
 │   │   ├── Protein_Preparation.py  # Protein preparation using Protoss
-│   │   └── Protein_Minimization.py # Protein-ligand complex minimization
+│   │   ├── Protein_Minimization.py # Protein-ligand complex minimization
+│   │   └── tool_legacy/            # Legacy utilities (deprecated)
+│   │       ├── CDPK_Utils.py       # Legacy CDPKit utilities
+│   │       └── OpeneEye_Utils.py   # Legacy OpenEye utilities
 │   └── analysis/
 │       └── clustering.py    # Clustering algorithms for pose analysis
 ├── 0_Examples/              # Example input files
@@ -448,6 +458,12 @@ ComplexDocking/
 - GNINA should be available in your PATH for Gnina_Pipeline.py to work
 - RxDock requires setting RBT_ROOT environment variable which is handled automatically in RxDock_Pipeline.py
 - OpenEye requires a valid license to use the OpenEye toolkit and docking software
+- Ligand preparation is handled through a unified `Ligand_Preparation.py` module that supports:
+  - Multiple protonation methods (CDPKit, OpenEye, Scrubber)
+  - Automatic stereoisomer enumeration
+  - Optional tautomer enumeration with configurable score thresholds
+  - 3D conformation generation
+  - Consistent naming convention: `{ligand_name}_Iso{i}_Taut{j}`
 - Protoss is the default protein protonation method; PDBFixer is available as an alternative
 - The binding site is defined based on the crystal ligand for all docking methods
 - All docking methods use internal multiprocessing, so the wrapper runs them sequentially

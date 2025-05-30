@@ -18,7 +18,7 @@ class TestPipelineDockingIntegration:
     #     crystal_sdf,
     #     ligands_sdf,
     #     single_docking_engine,
-    #     toolkit,
+    #     protonation_method_ligand,
     #     small_test_settings,
     #     output_validator
     # ):
@@ -33,7 +33,7 @@ class TestPipelineDockingIntegration:
     #         protein_pdb=protein_pdb,
     #         ligands_input=ligands_sdf,
     #         crystal_sdf=crystal_sdf,
-    #         toolkit=toolkit
+    #         protonation_method=protonation_method_ligand
     #     )
         
     #     # Run the docking
@@ -88,7 +88,7 @@ class TestPipelineDockingIntegration:
         crystal_sdf,
         ligands_sdf,
         multi_docking_engines,
-        toolkit,
+        protonation_method_ligand,
         small_test_settings,
         output_validator
     ):
@@ -103,7 +103,7 @@ class TestPipelineDockingIntegration:
             protein_pdb=protein_pdb,
             ligands_input=ligands_sdf,
             crystal_sdf=crystal_sdf,
-            toolkit=toolkit
+            protonation_method=protonation_method_ligand
         )
         
         # Run the docking
@@ -147,7 +147,7 @@ class TestPipelineDockingIntegration:
         print(f"{'='*60}")
         print(f"📁 Output Directory: {persistent_tmp_workdir}")
         print(f"📋 Copy-paste path: {persistent_tmp_workdir}")
-        print(f"⚙️ Toolkit used: {toolkit}")
+        print(f"⚙️ Ligand protonation method used: {protonation_method_ligand}")
         print(f"📈 Results DataFrame shape: {full_df.shape}")
         print(f"⚙️  Engines tested: {multi_docking_engines}")
         # print(f"✅ Engines in results: {list(engines_in_df)}")
@@ -164,7 +164,7 @@ class TestPipelineDockingIntegration:
     #     persistent_tmp_workdir,
     #     protein_pdb,
     #     crystal_sdf,
-    #     toolkit,
+    #     protonation_method_ligand,
     #     small_test_settings
     # ):
     #     """Test PipelineDocking with SMILES input instead of SDF."""
@@ -189,7 +189,7 @@ class TestPipelineDockingIntegration:
     #         protein_pdb=protein_pdb,
     #         ligands_input=smiles_file,
     #         crystal_sdf=crystal_sdf,
-    #         toolkit=toolkit
+    #         protonation_method=protonation_method_ligand
     #     )
         
     #     # Run the docking
@@ -228,7 +228,7 @@ class TestPipelineDockingIntegration:
     #     protein_pdb,
     #     crystal_sdf,
     #     ligands_sdf,
-    #     toolkit,
+    #     protonation_method_ligand,
     #     small_test_settings
     # ):
     #     """Test that pipeline results can be saved and loaded."""
@@ -245,7 +245,7 @@ class TestPipelineDockingIntegration:
     #         protein_pdb=protein_pdb,
     #         ligands_input=ligands_sdf,
     #         crystal_sdf=crystal_sdf,
-    #         toolkit=toolkit
+    #         protonation_method=protonation_method_ligand
     #     )
         
     #     # Run the docking
@@ -304,13 +304,13 @@ class TestPipelineDockingIntegration:
 #             protein_pdb=protein_pdb,
 #             ligands_input=ligands_sdf,
 #             crystal_sdf=crystal_sdf,
-#             toolkit="cdpkit"
+#             protonation_method="cdp"
 #         )
         
 #         assert docking_minimal.workdir == tmp_workdir
 #         assert docking_minimal.docking_software == ["rxdock"]
 #         assert docking_minimal.settings == (2, 1)
-#         assert docking_minimal.toolkit == "cdpkit"
+#         assert docking_minimal.protonation_method == "cdp"
         
 #         # Test with additional parameters
 #         docking_full = PipelineDocking(
@@ -320,13 +320,13 @@ class TestPipelineDockingIntegration:
 #             protein_pdb=protein_pdb,
 #             ligands_input=ligands_sdf,
 #             crystal_sdf=crystal_sdf,
-#             toolkit="cdpkit",
-#             protonation_method="protoss"
+#             protonation_method="cdp",
+#             protonation_method_protein="protoss"
 #         )
         
 #         assert docking_full.docking_software == ["rxdock", "plants"]
 #         assert docking_full.settings == (5, 2)
-#         assert docking_full.protonation_method == "protoss"
+#         assert docking_full.protonation_method_protein == "protoss"
         
 #         print(f"\n{'='*60}")
 #         print(f"⚙️  Configuration Test COMPLETED")
@@ -352,10 +352,10 @@ class TestPipelineDockingIntegration:
 #                 protein_pdb=protein_pdb,
 #                 ligands_input=ligands_sdf,
 #                 crystal_sdf=crystal_sdf,
-#                 toolkit="cdpkit"
+#                 protonation_method="cdp"
 #             )
         
-#         # Test with invalid toolkit
+#         # Test with invalid protonation method
 #         with pytest.raises((ValueError, ImportError, AttributeError)):
 #             PipelineDocking(
 #                 workdir=tmp_workdir,
@@ -364,7 +364,7 @@ class TestPipelineDockingIntegration:
 #                 protein_pdb=protein_pdb,
 #                 ligands_input=ligands_sdf,
 #                 crystal_sdf=crystal_sdf,
-#                 toolkit="invalid_toolkit"
+#                 protonation_method="invalid_method"
 #             )
         
 #         print(f"\n{'='*60}")
@@ -384,7 +384,7 @@ class TestPipelineDockingIntegration:
 #         protein_pdb,
 #         crystal_sdf,
 #         ligands_sdf,
-#         toolkit,
+#         protonation_method_ligand,
 #         small_test_settings
 #     ):
 #         """Test the format and content of output DataFrames."""
@@ -400,7 +400,7 @@ class TestPipelineDockingIntegration:
 #             protein_pdb=protein_pdb,
 #             ligands_input=ligands_sdf,
 #             crystal_sdf=crystal_sdf,
-#             toolkit=toolkit
+#             protonation_method=protonation_method_ligand
 #         )
         
 #         results = docking.run()

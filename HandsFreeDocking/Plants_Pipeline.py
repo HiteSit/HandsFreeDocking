@@ -27,16 +27,9 @@ try:
 except ImportError:
     OPENEYE_AVAILABLE = False
 
-try:
-    from .tools.Protein_Preparation import ProteinPreparation_Chimera
-    from .tools.tools import pybel_converter, pybel_flagger
-    from .tools.CDPK_Utils import CDPK_Runner, stero_enumerator
-    from .tools.OpeneEye_Utils import fix_3dmol, get_chirality_and_stereo, gen_3dmol
-except:
-    from tools.Protein_Preparation import ProteinPreparation_Chimera
-    from tools.tools import pybel_converter, pybel_flagger
-    from tools.CDPK_Utils import CDPK_Runner, stero_enumerator
-    from tools.OpeneEye_Utils import fix_3dmol, get_chirality_and_stereo, gen_3dmol
+from .tools.Protein_Preparation import ProteinPreparation_Chimera
+from .tools.tools import pybel_converter, pybel_flagger
+from .tools.Ligand_Preparation import LigandPreparator
 
 import logging
 logging.basicConfig(
@@ -50,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 class Plants_Docking:
     def __init__(self, workdir: Path, pdb_ID: Path, crystal_path: Path, ligands_sdf: Path, 
-                toolkit: str = "cdpkit"):
+                protonation_method: str = "cdp"):
         """
         Initialize the Plants docking pipeline
         
@@ -59,7 +52,7 @@ class Plants_Docking:
             pdb_ID: Path to the PDB file
             crystal_path: Path to the crystal ligand file
             ligands_sdf: Path to the ligands SDF file
-            toolkit: Which toolkit to use for ligand preparation ("cdpkit" or "openeye")
+            protonation_method: Method for protonating ligands ("cdp", "oe", or "scrubber")
         """
         self.workdir = workdir
         self.workdir.mkdir(exist_ok=True)
@@ -80,15 +73,11 @@ class Plants_Docking:
 
         self.docked_plants: List[Path] = []
         
-        # Set the toolkit for ligand preparation
-        if toolkit.lower() not in ["cdpkit", "openeye"]:
-            raise ValueError(f"Toolkit must be either 'cdpkit' or 'openeye', got {toolkit}")
+        # Set the protonation method for ligand preparation
+        if protonation_method.lower() not in ["cdp", "oe", "scrubber"]:
+            raise ValueError(f"Protonation method must be 'cdp', 'oe', or 'scrubber', got {protonation_method}")
         
-        if toolkit.lower() == "openeye" and not OPENEYE_AVAILABLE:
-            logger.warning("OpenEye toolkit not available! Falling back to CDPKit.")
-            self.toolkit = "cdpkit"
-        else:
-            self.toolkit = toolkit.lower()
+        self.protonation_method = protonation_method.lower()
 
         self._plants_env_variable()
 
@@ -136,70 +125,25 @@ class Plants_Docking:
         ligands_mol2_folder = self.workdir / "ligands_mol2"
         ligands_mol2_folder.mkdir(exist_ok=True)
         
-        if self.toolkit == "cdpkit":
-            # For CDPKit workflow:
-            # 1. First enumerate stereoisomers using RDKit-based function
-            ligands_stereo_path = self.workdir / f"{self.ligands_sdf.stem}_stereo.sdf"
-            logger.info(f"Enumerating stereoisomers with RDKit for {self.ligands_sdf}")
-            ligands_stereo_path = stero_enumerator(self.ligands_sdf, ligands_stereo_path)
-            
-            # 2. Then prepare the ligands using CDPK
-            ligands_sdf_prepared = self.workdir / "ligands_prepared.sdf"
-            logger.info(f"Preparing ligands with CDPKit")
-            cdpk_runner = CDPK_Runner()
-            cdpk_runner.prepare_ligands(ligands_stereo_path, ligands_sdf_prepared)
-            
-            # 3. Convert to mol2 and add to list
-            logger.info(f"Converting prepared ligands to mol2 format")
-            for obmol in pybel.readfile("sdf", str(ligands_sdf_prepared)):
-                obmol = pybel_flagger(obmol)
-                obmol.write("mol2", str(ligands_mol2_folder / f"{obmol.title}.mol2"), overwrite=True)
-                
-                self.ligands_mol2.append(ligands_mol2_folder / f"{obmol.title}.mol2")
-        else:
-            # OpenEye method for ligand preparation
-            # Get SMILES from SDF file first to use with gen_3dmol
-            logger.info(f"Extracting SMILES from SDF file to prepare with OpenEye toolkit")
-            molecules_data = []
-            
-            ifs = oechem.oemolistream()
-            if not ifs.open(str(self.ligands_sdf)):
-                raise FileNotFoundError(f"Cannot open {self.ligands_sdf}")
-                
-            for oemol in ifs.GetOEGraphMols():
-                title = oemol.GetTitle()
-                smiles = oechem.OECreateSmiString(oemol)
-                molecules_data.append((smiles, title))
-            ifs.close()
-            
-            # Process each molecule with gen_3dmol which properly generates 3D coordinates
-            logger.info(f"Generating 3D structures with OpenEye toolkit")
-            for smiles, title in molecules_data:
-                # Use gen_3dmol instead of fix_3dmol to ensure proper 3D generation
-                # This returns a list of stereoisomers with 3D coordinates
-                oemol_lst = gen_3dmol(smiles, protonate=True, gen3d=True, enum_isomers=True)
-                
-                logger.info(f"Generated {len(oemol_lst)} stereoisomers for {title}")
-                
-                # Process each stereoisomer
-                for j, enantiomer in enumerate(oemol_lst):
-                    # Use 'Iso' naming to be consistent with CDPKit pattern
-                    enantiomer_name = f"{title}_Iso{j}"
-                    enantiomer.SetTitle(enantiomer_name)
-                    
-                    # Get and store chirality information
-                    chirality_info = get_chirality_and_stereo(enantiomer)
-                    if chirality_info:
-                        oechem.OESetSDData(enantiomer, "ChiralInfo", chirality_info)
-                    
-                    # Save to mol2 file
-                    outpath = ligands_mol2_folder / f"{enantiomer_name}.mol2"
-                    ofs = oechem.oemolostream(str(outpath))
-                    oechem.OEWriteMolecule(ofs, enantiomer)
-                    ofs.close()
-                    
-                    # Append the path to the list
-                    self.ligands_mol2.append(outpath)
+        # Initialize the ligand preparator with appropriate settings
+        logger.info(f"Preparing ligands using {self.protonation_method} protonation method")
+        
+        preparator = LigandPreparator(
+            protonation_method=self.protonation_method,
+            enumerate_stereo=True,
+            enumerate_tautomers=False,  # No tautomer enumeration by default
+            generate_3d=True
+        )
+        
+        # Prepare molecules from SDF
+        prepared_mols = preparator.prepare_from_sdf(self.ligands_sdf)
+        
+        # Save to MOL2 format for Plants
+        logger.info(f"Converting prepared ligands to mol2 format")
+        mol2_paths = preparator.save_to_mol2(prepared_mols, ligands_mol2_folder)
+        
+        # Add paths to the list
+        self.ligands_mol2 = mol2_paths
 
     def write_conf(self, ligand_to_dock: Path, n_confs) -> Path:
         # Define the binding site
@@ -431,5 +375,5 @@ if __name__ == "__main__":
     ligands_sdf = Path("./0_Examples/some_ligands.sdf")
 
     # Initialize and run the Plants docking pipeline
-    plants_pipeline = Plants_Docking(workdir, pdb_ID, crystal_path, ligands_sdf, toolkit="openeye")
+    plants_pipeline = Plants_Docking(workdir, pdb_ID, crystal_path, ligands_sdf, protonation_method="oe")
     plants_pipeline.main(n_confs=10, n_cpus=2)

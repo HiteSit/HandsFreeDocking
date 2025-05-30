@@ -35,12 +35,7 @@ except ImportError:
     OPENEYE_PIPELINE_AVAILABLE = False
 
 # Import utilities if available
-try:
-    from HandsFreeDocking.tools.OpeneEye_Utils import gen_3dmol
-except ImportError:
-    # Define a placeholder function if OpenEye utils are not available
-    def gen_3dmol(*args, **kwargs):
-        raise ImportError("OpenEye utilities not available")
+from HandsFreeDocking.tools.Ligand_Preparation import LigandPreparator
 
 import logging
 logging.basicConfig(
@@ -68,7 +63,7 @@ class PipelineDocking:
                 protein_pdb: Path, 
                 ligands_input: Path, 
                 crystal_sdf: Path,
-                toolkit: str = "cdpkit"):
+                protonation_method: str = "cdp"):
         """
         Initialize the PipelineDocking wrapper.
         
@@ -79,7 +74,7 @@ class PipelineDocking:
             protein_pdb: Path to the protein PDB file
             ligands_input: Path to the ligands file (SDF or SMILES)
             crystal_sdf: Path to the crystal ligand SDF file
-            toolkit: Toolkit to use for ligand preparation ("cdpkit" or "openeye")
+            protonation_method: Method for protonating ligands ("cdp", "oe", or "scrubber")
         """
         # Validate inputs
         self.workdir = workdir
@@ -99,15 +94,15 @@ class PipelineDocking:
         self.ligands_input = ligands_input
         self.crystal_sdf = crystal_sdf.absolute()
         
-        # Validate toolkit
-        if toolkit.lower() not in ["cdpkit", "openeye"]:
-            raise ValueError(f"Toolkit must be either 'cdpkit' or 'openeye', got {toolkit}")
+        # Validate protonation method
+        if protonation_method.lower() not in ["cdp", "oe", "scrubber"]:
+            raise ValueError(f"Protonation method must be 'cdp', 'oe', or 'scrubber', got {protonation_method}")
             
-        if toolkit.lower() == "openeye" and not OPENEYE_AVAILABLE:
-            logger.warning("OpenEye toolkit not available! Falling back to CDPKit.")
-            self.toolkit = "cdpkit"
+        if protonation_method.lower() == "oe" and not OPENEYE_AVAILABLE:
+            logger.warning("OpenEye not available for protonation! Falling back to CDP.")
+            self.protonation_method = "cdp"
         else:
-            self.toolkit = toolkit.lower()
+            self.protonation_method = protonation_method.lower()
         
         # Detect input format
         self.input_format = self._detect_input_format()
@@ -148,7 +143,7 @@ class PipelineDocking:
         logger.info(f"Converting SMILES to SDF: {self.ligands_input}")
         ligands_sdf = self.workdir / "processed_ligands.sdf"
         
-        if self.toolkit == "cdpkit":
+        if self.protonation_method in ["cdp", "scrubber"]:
             # Read SMILES file
             smiles_data = []
             
@@ -186,30 +181,26 @@ class PipelineDocking:
                     logger.warning(f"Failed to process SMILES: {smiles} ({mol_id})")
             writer.close()
             
-        else:  # OpenEye toolkit
-            if not OPENEYE_AVAILABLE:
-                raise ImportError("OpenEye toolkit not available for SMILES conversion")
-                
-            # Similar approach as with the Fake_Wrapper.py
-            ofs = oechem.oemolostream(str(ligands_sdf))
+        else:  # Use unified ligand preparation for OpenEye
+            preparator = LigandPreparator(
+                protonation_method=self.protonation_method,
+                enumerate_stereo=True,
+                enumerate_tautomers=False,
+                generate_3d=True
+            )
+            
+            smiles_list = []
+            names_list = []
             
             try:
+                # Try reading as CSV with SMILES column
                 df = pd.read_csv(self.ligands_input)
                 if 'SMILES' in df.columns:
                     for i, row in df.iterrows():
                         smile = row['SMILES']
                         mol_id = row['ID'] if 'ID' in df.columns else f"Mol_{i}"
-                        
-                        # Use OpenEye to generate 3D
-                        oemol_lst = gen_3dmol(smile, protonate=True, gen3d=True, enum_isomers=True)
-                        
-                        for j, oemol in enumerate(oemol_lst):
-                            if len(oemol_lst) > 1:
-                                name = f"{mol_id}_Stereo_{j}"
-                            else:
-                                name = mol_id
-                            oemol.SetTitle(name)
-                            oechem.OEWriteMolecule(ofs, oemol)
+                        smiles_list.append(smile)
+                        names_list.append(mol_id)
             except:
                 # Try reading as SMILES file
                 with open(self.ligands_input, 'r') as f:
@@ -221,18 +212,14 @@ class PipelineDocking:
                             else:
                                 smile, mol_id = parts[0], f"Mol_{i}"
                             
-                            # Use OpenEye to generate 3D
-                            oemol_lst = gen_3dmol(smile, protonate=True, gen3d=True, enum_isomers=True)
-                            
-                            for j, oemol in enumerate(oemol_lst):
-                                if len(oemol_lst) > 1:
-                                    name = f"{mol_id}_Stereo_{j}"
-                                else:
-                                    name = mol_id
-                                oemol.SetTitle(name)
-                                oechem.OEWriteMolecule(ofs, oemol)
+                            smiles_list.append(smile)
+                            names_list.append(mol_id)
             
-            ofs.close()
+            # Prepare all molecules
+            prepared_mols = preparator.prepare_from_smiles(smiles_list, names_list)
+            
+            # Save to SDF
+            preparator.save_to_sdf(prepared_mols, ligands_sdf)
             
         logger.info(f"Successfully processed input to SDF: {ligands_sdf}")
         return ligands_sdf
@@ -251,7 +238,7 @@ class PipelineDocking:
             pdb_ID=self.protein_pdb,
             crystal_path=self.crystal_sdf,
             ligands_sdf=ligands_sdf,
-            toolkit=self.toolkit
+            protonation_method=self.protonation_method
         )
         
         plants_pipeline.main(n_confs=self.n_confs, n_cpus=self.n_cpus)
@@ -279,7 +266,8 @@ class PipelineDocking:
             pdb_ID=self.protein_pdb,
             crystal_path=self.crystal_sdf,
             ligands_sdf=ligands_sdf,
-            toolkit=self.toolkit
+            protonation_method=self.protonation_method,
+            protein_protonation_method="protoss"  # Default protein protonation method
         )
         
         gnina_pipeline.non_covalent_run(n_confs=self.n_confs, n_cpus=self.n_cpus)
@@ -359,7 +347,7 @@ class PipelineDocking:
             pdb_ID=self.protein_pdb,
             crystal_path=self.crystal_sdf,
             ligands_sdf=ligands_sdf,
-            toolkit=self.toolkit
+            protonation_method=self.protonation_method
         )
         
         # Run RxDock docking with specified parameters

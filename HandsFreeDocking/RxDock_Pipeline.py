@@ -21,23 +21,9 @@ import numpy as np
 from rdkit.Chem import PandasTools
 from openbabel import pybel, openbabel
 
-try:
-    from openeye import oechem
-    from openeye import oeomega
-    OPENEYE_AVAILABLE = True
-except ImportError:
-    OPENEYE_AVAILABLE = False
-
-try:
-    from .tools.Protein_Preparation import ProteinPreparation_Chimera
-    from .tools.tools import pybel_converter, pybel_flagger
-    from .tools.CDPK_Utils import CDPK_Runner, stero_enumerator
-    from .tools.OpeneEye_Utils import fix_3dmol, get_chirality_and_stereo, gen_3dmol
-except ImportError:
-    from tools.Protein_Preparation import ProteinPreparation_Chimera
-    from tools.tools import pybel_converter, pybel_flagger
-    from tools.CDPK_Utils import CDPK_Runner, stero_enumerator
-    from tools.OpeneEye_Utils import fix_3dmol, get_chirality_and_stereo, gen_3dmol
+from .tools.Protein_Preparation import ProteinPreparation_Chimera
+from .tools.tools import pybel_converter, pybel_flagger
+from .tools.Ligand_Preparation import LigandPreparator
 
 import logging
 logging.basicConfig(
@@ -51,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 class RxDock_Docking:
     def __init__(self, workdir: Path, pdb_ID: Path, crystal_path: Path, ligands_sdf: Path, 
-                toolkit: str = "cdpkit"):
+                protonation_method: str = "cdp"):
         """
         Initialize the RxDock docking pipeline
         
@@ -60,7 +46,7 @@ class RxDock_Docking:
             pdb_ID: Path to the PDB file
             crystal_path: Path to the crystal ligand file
             ligands_sdf: Path to the ligands SDF file
-            toolkit: Which toolkit to use for ligand preparation ("cdpkit" or "openeye")
+            protonation_method: Method for protonating ligands ("cdp", "oe", or "scrubber")
         """
         self.workdir = workdir
         self.workdir.mkdir(exist_ok=True)
@@ -84,15 +70,11 @@ class RxDock_Docking:
 
         self.docked_rxdock: List[Path] = []
         
-        # Set the toolkit for ligand preparation
-        if toolkit.lower() not in ["cdpkit", "openeye"]:
-            raise ValueError(f"Toolkit must be either 'cdpkit' or 'openeye', got {toolkit}")
+        # Set the protonation method for ligand preparation
+        if protonation_method.lower() not in ["cdp", "oe", "scrubber"]:
+            raise ValueError(f"Protonation method must be 'cdp', 'oe', or 'scrubber', got {protonation_method}")
         
-        if toolkit.lower() == "openeye" and not OPENEYE_AVAILABLE:
-            logger.warning("OpenEye toolkit not available! Falling back to CDPKit.")
-            self.toolkit = "cdpkit"
-        else:
-            self.toolkit = toolkit.lower()
+        self.protonation_method = protonation_method.lower()
 
         self._rxdock_env_variable()
 
@@ -260,75 +242,30 @@ END_SECTION
         ligands_splitted_path: Path = self.workdir / "ligands_split"
         ligands_splitted_path.mkdir(exist_ok=True)
         
-        if self.toolkit == "cdpkit":
-            # CDPKit workflow (open source option):
-            # 1. First enumerate stereoisomers using RDKit-based function
-            ligands_stereo_path = self.workdir / f"{self.ligands_sdf.stem}_stereo.sdf"
-            logger.info(f"Enumerating stereoisomers with RDKit for {self.ligands_sdf}")
-            ligands_stereo_path = stero_enumerator(self.ligands_sdf, ligands_stereo_path)
-            
-            # 2. Then prepare the ligands using CDPK (add hydrogens, generate 3D coordinates)
-            ligand_prepared_path = self.workdir / "ligands_prepared.sdf"
-            logger.info(f"Preparing ligands with CDPKit")
-            cdpk_runner = CDPK_Runner()
-            cdpk_runner.prepare_ligands(ligands_stereo_path, ligand_prepared_path)
-            
-            # 3. Split into individual files (one ligand per file for docking)
-            logger.info(f"Splitting prepared ligands into individual files")
-            for mol in Chem.SDMolSupplier(str(ligand_prepared_path)):
-                if mol is None:
-                    continue
-                    
-                mol_name = mol.GetProp("_Name")
-                ligand_split = ligands_splitted_path / f"{mol_name}.sdf"
+        # Initialize the ligand preparator with appropriate settings
+        logger.info(f"Preparing ligands using {self.protonation_method} protonation method")
+        
+        preparator = LigandPreparator(
+            protonation_method=self.protonation_method,
+            enumerate_stereo=True,
+            enumerate_tautomers=False,
+            generate_3d=True
+        )
+        
+        # Prepare molecules from SDF
+        prepared_mols = preparator.prepare_from_sdf(self.ligands_sdf)
+        
+        # Save individual molecules for docking
+        logger.info(f"Splitting prepared ligands into individual files")
+        for mol in prepared_mols:
+            if mol is None:
+                continue
                 
-                self.ligands_splitted.append(ligand_split.absolute())
-                Chem.SDWriter(str(ligand_split)).write(mol)
-        else:
-            # OpenEye method for ligand preparation (commercial option with advanced features)
-            # Get SMILES from SDF file first to use with gen_3dmol
-            logger.info(f"Extracting SMILES from SDF file to prepare with OpenEye toolkit")
-            molecules_data = []
+            mol_name = mol.GetProp("_Name")
+            ligand_split = ligands_splitted_path / f"{mol_name}.sdf"
             
-            # Open the SDF file with OpenEye tools
-            ifs = oechem.oemolistream()
-            if not ifs.open(str(self.ligands_sdf)):
-                raise FileNotFoundError(f"Unable to open {self.ligands_sdf}")
-                
-            # Extract molecule titles and SMILES representations
-            for oemol in ifs.GetOEGraphMols():
-                title = oemol.GetTitle()
-                smiles = oechem.OECreateSmiString(oemol)
-                molecules_data.append((smiles, title))
-            ifs.close()
-            
-            # Process each molecule with gen_3dmol to get proper 3D coordinates and stereoisomers
-            logger.info(f"Generating 3D structures with OpenEye toolkit")
-            for smiles, title in molecules_data:
-                # gen_3dmol returns a list of stereoisomers with 3D coordinates
-                # protonate=True adds hydrogens, gen3d=True generates 3D coords, enum_isomers=True enumerates stereoisomers
-                oemol_lst = gen_3dmol(smiles, protonate=True, gen3d=True, enum_isomers=True)
-                
-                logger.info(f"Generated {len(oemol_lst)} stereoisomers for {title}")
-                
-                # Process each stereoisomer
-                for j, enantiomer in enumerate(oemol_lst):
-                    # Use 'Iso' naming convention to be consistent with CDPKit pattern across pipelines
-                    enantiomer_name = f"{title}_Iso{j}"
-                    enantiomer.SetTitle(enantiomer_name)
-                    
-                    # Get and store chirality information for reference
-                    chirality_info = get_chirality_and_stereo(enantiomer)
-                    if chirality_info:
-                        oechem.OESetSDData(enantiomer, "ChiralInfo", chirality_info)
-                    
-                    # Save to individual SDF file
-                    ligand_split = ligands_splitted_path / f"{enantiomer_name}.sdf"
-                    self.ligands_splitted.append(ligand_split.absolute())
-                    
-                    ofs = oechem.oemolostream(str(ligand_split))
-                    oechem.OEWriteMolecule(ofs, enantiomer)
-                    ofs.close()
+            self.ligands_splitted.append(ligand_split.absolute())
+            preparator.save_to_sdf([mol], ligand_split)
                     
         logger.info(f"Successfully prepared {len(self.ligands_splitted)} ligands for docking")
 
@@ -765,5 +702,5 @@ if __name__ == "__main__":
     ligands_sdf = Path("./0_Examples/some_ligands.sdf")
 
     # Initialize and run the RxDock docking pipeline
-    rxdock_pipeline = RxDock_Docking(workdir, pdb_ID, crystal_path, ligands_sdf, toolkit="cdpkit")
+    rxdock_pipeline = RxDock_Docking(workdir, pdb_ID, crystal_path, ligands_sdf, protonation_method="cdp")
     rxdock_pipeline.main(n_poses=10, n_cpus=2)

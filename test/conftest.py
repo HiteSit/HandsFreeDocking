@@ -56,23 +56,23 @@ def persistent_tmp_workdir(tmp_path):
     return workdir
 
 # Fixtures for docking software configuration
-@pytest.fixture(params=["cdpkit", "openeye"])
-def toolkit(request) -> str:
-    """Parameterized fixture for different toolkits."""
-    toolkit_name = request.param
+@pytest.fixture(params=["cdp", "oe"])
+def protonation_method_ligand(request) -> str:
+    """Parameterized fixture for different ligand protonation methods."""
+    method_name = request.param
     
     # Skip OpenEye tests if not available
-    if toolkit_name == "openeye":
+    if method_name == "oe":
         try:
             from openeye import oechem
         except ImportError:
             pytest.skip("OpenEye toolkit not available")
     
-    return toolkit_name
+    return method_name
 
 @pytest.fixture(params=["protoss", "pdbfixer"])
-def protonation_method(request) -> str:
-    """Parameterized fixture for different protonation methods."""
+def protein_protonation_method(request) -> str:
+    """Parameterized fixture for different protein protonation methods."""
     return request.param
 
 # Fixtures for individual docking engines

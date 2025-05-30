@@ -59,8 +59,8 @@ def mpi_runner(
         pdb_ID=pdb_path,
         crystal_path=crystal_path,
         ligands_sdf=sub_ligands_sdf,
-        toolkit="openeye",
-        protonation_method="protoss"
+        protonation_method="oe",
+        protein_protonation_method="protoss"
     )
 
     gnina_docking.covalent_run(

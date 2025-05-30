@@ -24,7 +24,7 @@ class TestRxDockPipeline:
         protein_pdb,
         crystal_sdf,
         ligands_sdf,
-        toolkit,
+        protonation_method_ligand,
         small_test_settings,
         output_validator
     ):
@@ -37,7 +37,7 @@ class TestRxDockPipeline:
             pdb_ID=protein_pdb,
             crystal_path=crystal_sdf,
             ligands_sdf=ligands_sdf,
-            toolkit=toolkit
+            protonation_method=protonation_method_ligand
         )
         
         # Run the pipeline
@@ -85,7 +85,7 @@ class TestPlantsPipeline:
         protein_pdb,
         crystal_sdf,
         ligands_sdf,
-        toolkit,
+        protonation_method_ligand,
         small_test_settings,
         output_validator
     ):
@@ -98,7 +98,7 @@ class TestPlantsPipeline:
             pdb_ID=protein_pdb,
             crystal_path=crystal_sdf,
             ligands_sdf=ligands_sdf,
-            toolkit=toolkit
+            protonation_method=protonation_method_ligand
         )
         
         # Run the pipeline
@@ -150,8 +150,8 @@ class TestGninaPipeline:
         protein_pdb,
         crystal_sdf,
         ligands_sdf,
-        toolkit,
-        protonation_method,
+        protonation_method_ligand,
+        protein_protonation_method,
         small_test_settings,
         output_validator
     ):
@@ -164,8 +164,8 @@ class TestGninaPipeline:
             pdb_ID=protein_pdb,
             crystal_path=crystal_sdf,
             ligands_sdf=ligands_sdf,
-            toolkit=toolkit,
-            protonation_method=protonation_method
+            protonation_method=protonation_method_ligand,
+            protonation_method_protein=protein_protonation_method
         )
         
         # Run the non-covalent pipeline
@@ -182,7 +182,7 @@ class TestGninaPipeline:
         assert file_validation["all_gnina_sdf_files_not_empty"], "All _Gnina.sdf files should be non-empty"
         
         # Check for prepared protein
-        if protonation_method == "protoss":
+        if protein_protonation_method == "protoss":
             prep_protein = persistent_tmp_workdir / f"{protein_pdb.stem}_prep.pdb"
         else:  # pdbfixer
             prep_protein = persistent_tmp_workdir / f"{protein_pdb.stem}_clean.pdb"
@@ -199,7 +199,7 @@ class TestGninaPipeline:
         print(f"{'='*60}")
         print(f"📁 Output Directory: {persistent_tmp_workdir}")
         print(f"📋 Copy-paste path: {persistent_tmp_workdir}")
-        print(f"⚙️  Used protonation method: {protonation_method}")
+        print(f"⚙️  Used protein protonation method: {protein_protonation_method}")
         print(f"🔍 Key files to inspect:")
         print(f"   - Docked molecules: {persistent_tmp_workdir}/output/*_Gnina.sdf")
         print(f"   - Prepared protein: {persistent_tmp_workdir}/{protein_pdb.stem}_prep.pdb")
@@ -286,7 +286,7 @@ class TestPipelineRobustness:
         persistent_tmp_workdir,
         protein_pdb,
         crystal_sdf,
-        toolkit,
+        protonation_method_ligand,
         small_test_settings
     ):
         """Test pipeline behavior with invalid or missing inputs."""
@@ -302,7 +302,7 @@ class TestPipelineRobustness:
             pdb_ID=protein_pdb,
             crystal_path=crystal_sdf,
             ligands_sdf=empty_sdf,
-            toolkit=toolkit
+            protonation_method=protonation_method_ligand
         )
         
         # This should either handle gracefully or fail in a controlled way
