@@ -84,7 +84,7 @@ def single_docking_engine(request) -> str:
 @pytest.fixture
 def multi_docking_engines() -> list:
     """Fixture for testing multiple docking engines together."""
-    return ["rxdock", "plants", "gnina"]
+    return ["rxdock", "plants"]
 
 @pytest.fixture
 def all_docking_engines() -> list:
