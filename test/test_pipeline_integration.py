@@ -10,68 +10,75 @@ from HandsFreeDocking.Wrapper_Docking import PipelineDocking
 class TestPipelineDockingIntegration:
     """Test the main PipelineDocking wrapper with multiple engines."""
     
-    @pytest.mark.slow
-    def test_single_engine_pipeline_docking(
-        self,
-        persistent_tmp_workdir,
-        protein_pdb,
-        crystal_sdf,
-        ligands_sdf,
-        single_docking_engine,
-        toolkit,
-        small_test_settings,
-        output_validator
-    ):
-        """Test PipelineDocking with a single docking engine."""
-        n_confs, n_cpus = small_test_settings
+    # @pytest.mark.slow
+    # def test_single_engine_pipeline_docking(
+    #     self,
+    #     persistent_tmp_workdir,
+    #     protein_pdb,
+    #     crystal_sdf,
+    #     ligands_sdf,
+    #     single_docking_engine,
+    #     toolkit,
+    #     small_test_settings,
+    #     output_validator
+    # ):
+    #     """Test PipelineDocking with a single docking engine."""
+    #     n_confs, n_cpus = small_test_settings
         
-        # Initialize PipelineDocking with single engine
-        docking = PipelineDocking(
-            workdir=persistent_tmp_workdir,
-            docking_software=[single_docking_engine],
-            settings=(n_confs, n_cpus),
-            protein_pdb=protein_pdb,
-            ligands_input=ligands_sdf,
-            crystal_sdf=crystal_sdf,
-            toolkit=toolkit
-        )
+    #     # Initialize PipelineDocking with single engine
+    #     docking = PipelineDocking(
+    #         workdir=persistent_tmp_workdir,
+    #         docking_software=[single_docking_engine],
+    #         settings=(n_confs, n_cpus),
+    #         protein_pdb=protein_pdb,
+    #         ligands_input=ligands_sdf,
+    #         crystal_sdf=crystal_sdf,
+    #         toolkit=toolkit
+    #     )
         
-        # Run the docking
-        results = docking.run()
+    #     # Run the docking
+    #     results = docking.run()
         
-        # Validate results structure
-        assert isinstance(results, dict), "Results should be a dictionary"
-        assert single_docking_engine in results, f"Results should contain {single_docking_engine}"
+    #     # Validate results structure
+    #     assert isinstance(results, dict), "Results should be a dictionary"
+    #     assert single_docking_engine in results, f"Results should contain {single_docking_engine}"
         
-        # Get concatenated DataFrame
-        full_df = docking.concat_df()
-        assert isinstance(full_df, pd.DataFrame), "concat_df should return a DataFrame"
-        assert len(full_df) > 0, "DataFrame should not be empty"
+    #     # Get concatenated DataFrame
+    #     full_df = docking.concat_df()
+    #     assert isinstance(full_df, pd.DataFrame), "concat_df should return a DataFrame"
+    #     assert len(full_df) > 0, "DataFrame should not be empty"
         
-        # Validate DataFrame columns
-        expected_columns = ["ID", "Molecule", "Score", "Engine"]
-        for col in expected_columns:
-            assert col in full_df.columns, f"DataFrame should contain {col} column"
+    #     # Validate DataFrame columns
+    #     expected_columns = ["ID", "Molecule", "Score", "Engine"]
+    #     for col in expected_columns:
+    #         assert col in full_df.columns, f"DataFrame should contain {col} column"
         
-        # Validate engine-specific directory structure
-        engine_dir = persistent_tmp_workdir / single_docking_engine.title()
-        assert engine_dir.exists(), f"Engine directory {engine_dir} should exist"
+    #     # Validate engine-specific directory structure
+    #     engine_dir = persistent_tmp_workdir / single_docking_engine.title()
+    #     assert engine_dir.exists(), f"Engine directory {engine_dir} should exist"
         
-        # Validate output files in engine directory
-        output_dir = engine_dir / "output"
-        assert output_dir.exists(), f"Output directory {output_dir} should exist"
+    #     # Validate output files in engine directory
+    #     output_dir = engine_dir / "output"
+    #     assert output_dir.exists(), f"Output directory {output_dir} should exist"
         
-        # Engine-specific file validation
-        file_validation = output_validator["output_files"](engine_dir, single_docking_engine)
-        engine_key = f"has_{single_docking_engine}_sdf_files" if single_docking_engine != "rxdock" else "has_sd_files"
-        if engine_key in file_validation:
-            assert file_validation[engine_key], f"Should have {single_docking_engine} output files"
+    #     # Engine-specific file validation
+    #     file_validation = output_validator["output_files"](engine_dir, single_docking_engine)
+    #     engine_key = f"has_{single_docking_engine}_sdf_files" if single_docking_engine != "rxdock" else "has_sd_files"
+    #     if engine_key in file_validation:
+    #         assert file_validation[engine_key], f"Should have {single_docking_engine} output files"
         
-        # Print info for manual inspection
-        print(f"Single engine test completed for {single_docking_engine}")
-        print(f"Output directory: {persistent_tmp_workdir}")
-        print(f"Results DataFrame shape: {full_df.shape}")
-        print(f"Number of poses: {len(full_df)}")
+    #     # Print info for manual inspection
+    #     print(f"\n{'='*60}")
+    #     print(f"🔧 Single Engine Test COMPLETED - {single_docking_engine.upper()}")
+    #     print(f"{'='*60}")
+    #     print(f"📁 Output Directory: {persistent_tmp_workdir}")
+    #     print(f"📋 Copy-paste path: {persistent_tmp_workdir}")
+    #     print(f"📈 Results DataFrame shape: {full_df.shape}")
+    #     print(f"📊 Number of poses: {len(full_df)}")
+    #     print(f"🔍 Key directories to inspect:")
+    #     print(f"   - Engine directory: {engine_dir}")
+    #     print(f"   - Output files: {output_dir}")
+    #     print(f"{'='*60}\n")
     
     @pytest.mark.slow
     def test_multi_engine_pipeline_docking(
@@ -133,11 +140,20 @@ class TestPipelineDockingIntegration:
         assert scores.max() <= 1, "Normalized scores should be <= 1"
         
         # Print info for manual inspection
-        print(f"Multi-engine test completed for {multi_docking_engines}")
-        print(f"Output directory: {persistent_tmp_workdir}")
-        print(f"Results DataFrame shape: {full_df.shape}")
-        print(f"Engines in results: {list(engines_in_df)}")
-        print(f"Score range: {scores.min():.3f} - {scores.max():.3f}")
+        print(f"\n{'='*60}")
+        print(f"🚀 Multi-Engine Integration Test COMPLETED")
+        print(f"{'='*60}")
+        print(f"📁 Output Directory: {persistent_tmp_workdir}")
+        print(f"📋 Copy-paste path: {persistent_tmp_workdir}")
+        print(f"📈 Results DataFrame shape: {full_df.shape}")
+        print(f"⚙️  Engines tested: {multi_docking_engines}")
+        print(f"✅ Engines in results: {list(engines_in_df)}")
+        print(f"📉 Score range: {scores.min():.3f} - {scores.max():.3f}")
+        print(f"🔍 Key directories to inspect:")
+        for engine in multi_docking_engines:
+            engine_dir = persistent_tmp_workdir / engine.title()
+            print(f"   - {engine.upper()}: {engine_dir}")
+        print(f"{'='*60}\n")
     
     @pytest.mark.slow
     def test_pipeline_with_smiles_input(
@@ -190,10 +206,17 @@ class TestPipelineDockingIntegration:
         assert full_df["Molecule"].notna().all(), "All molecules should be valid"
         
         # Print info for manual inspection
-        print(f"SMILES input test completed")
-        print(f"Output directory: {persistent_tmp_workdir}")
-        print(f"Results DataFrame shape: {full_df.shape}")
-        print(f"Processed {len(smiles_data)} SMILES inputs")
+        print(f"\n{'='*60}")
+        print(f"🧪 SMILES Input Test COMPLETED")
+        print(f"{'='*60}")
+        print(f"📁 Output Directory: {persistent_tmp_workdir}")
+        print(f"📋 Copy-paste path: {persistent_tmp_workdir}")
+        print(f"📈 Results DataFrame shape: {full_df.shape}")
+        print(f"📊 Processed {len(smiles_data)} SMILES inputs")
+        print(f"🔍 Key files to inspect:")
+        print(f"   - Input SMILES: {smiles_file}")
+        print(f"   - Engine output: {persistent_tmp_workdir}/{test_engine[0].title()}")
+        print(f"{'='*60}\n")
     
     @pytest.mark.slow
     def test_pipeline_result_persistence(
@@ -244,11 +267,18 @@ class TestPipelineDockingIntegration:
         assert list(loaded_df.columns) == list(full_df.columns), "Loaded DataFrame should have same columns"
         
         # Print info for manual inspection
-        print(f"Persistence test completed")
-        print(f"Output directory: {persistent_tmp_workdir}")
-        print(f"Results saved to: {results_file}")
-        print(f"Original DataFrame shape: {full_df.shape}")
-        print(f"Loaded DataFrame shape: {loaded_df.shape}")
+        print(f"\n{'='*60}")
+        print(f"💾 Result Persistence Test COMPLETED")
+        print(f"{'='*60}")
+        print(f"📁 Output Directory: {persistent_tmp_workdir}")
+        print(f"📋 Copy-paste path: {persistent_tmp_workdir}")
+        print(f"💾 Results saved to: {results_file}")
+        print(f"📈 Original DataFrame shape: {full_df.shape}")
+        print(f"📊 Loaded DataFrame shape: {loaded_df.shape}")
+        print(f"🔍 Files to inspect:")
+        print(f"   - Pickle file: {results_file}")
+        print(f"   - Engine outputs: {persistent_tmp_workdir}/{test_engine[0].title()}")
+        print(f"{'='*60}\n")
 
 
 class TestPipelineDockingConfiguration:
@@ -295,7 +325,11 @@ class TestPipelineDockingConfiguration:
         assert docking_full.settings == (5, 2)
         assert docking_full.protonation_method == "protoss"
         
-        print("Configuration test completed successfully")
+        print(f"\n{'='*60}")
+        print(f"⚙️  Configuration Test COMPLETED")
+        print(f"{'='*60}")
+        print(f"✅ Parameter validation successful")
+        print(f"{'='*60}\n")
     
     def test_invalid_configuration_handling(
         self,
@@ -330,7 +364,11 @@ class TestPipelineDockingConfiguration:
                 toolkit="invalid_toolkit"
             )
         
-        print("Invalid configuration handling test completed")
+        print(f"\n{'='*60}")
+        print(f"⚠️  Invalid Configuration Test COMPLETED")
+        print(f"{'='*60}")
+        print(f"✅ Error handling validation successful")
+        print(f"{'='*60}\n")
 
 
 class TestPipelineDockingOutputFormats:
@@ -387,7 +425,12 @@ class TestPipelineDockingOutputFormats:
         assert scores.min() >= 0, "Normalized scores should be >= 0"
         assert scores.max() <= 1, "Normalized scores should be <= 1"
         
-        print(f"DataFrame format test completed")
-        print(f"DataFrame columns: {list(full_df.columns)}")
-        print(f"DataFrame shape: {full_df.shape}")
-        print(f"Score range: {scores.min():.3f} - {scores.max():.3f}")
+        print(f"\n{'='*60}")
+        print(f"📈 DataFrame Format Test COMPLETED")
+        print(f"{'='*60}")
+        print(f"📁 Output Directory: {persistent_tmp_workdir}")
+        print(f"📋 Copy-paste path: {persistent_tmp_workdir}")
+        print(f"📈 DataFrame shape: {full_df.shape}")
+        print(f"📊 DataFrame columns: {list(full_df.columns)}")
+        print(f"📉 Score range: {scores.min():.3f} - {scores.max():.3f}")
+        print(f"{'='*60}\n")

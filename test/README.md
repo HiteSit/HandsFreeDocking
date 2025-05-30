@@ -2,6 +2,24 @@
 
 This directory contains pytest tests for the HandsFreeDocking molecular docking pipeline. The tests are designed to validate that the docking pipelines run successfully and produce expected outputs without validating the scientific correctness of the results.
 
+## 🚀 **Quick Start - Most Important Commands**
+
+```bash
+# 1. Activate environment
+conda activate cheminf_3_11
+
+# 2. Run tests with output paths (MOST IMPORTANT!)
+pytest test/ -s -v
+
+# 3. Run just one pipeline test
+pytest test/test_individual_pipelines.py::TestRxDockPipeline -s -v
+
+# 4. Skip slow tests (for quick validation)
+pytest test/ -m "not slow" -s -v
+```
+
+**The `-s` flag is KEY - it shows you exactly where the output files are saved!**
+
 ## Test Philosophy
 
 These tests follow a **flexible validation approach**:
@@ -32,43 +50,85 @@ These tests follow a **flexible validation approach**:
 
 ## Running Tests
 
-### Quick Test (Individual Components)
+### Quick Setup
 ```bash
-# Run all tests
-pytest tests/
+# 1. Activate the conda environment
+conda activate cheminf_3_11
+
+# 2. Navigate to the project directory
+cd /path/to/HandsFreeDocking
+```
+
+### 🚀 **RECOMMENDED: Run with Output Display**
+```bash
+# Run tests with detailed output paths (RECOMMENDED)
+pytest test/ -s -v
+
+# Run specific pipeline with detailed output
+pytest test/test_individual_pipelines.py::TestRxDockPipeline -s -v
+
+# Run only fast tests with output paths
+pytest test/ -m "not slow" -s -v
+```
+
+### Basic Test Commands
+```bash
+# Run all tests (quiet mode)
+pytest test/
 
 # Run only fast tests (skip slow integration tests)
-pytest tests/ -m "not slow"
+pytest test/ -m "not slow"
 
 # Run tests for specific pipeline
-pytest tests/test_individual_pipelines.py::TestRxDockPipeline -v
+pytest test/test_individual_pipelines.py::TestRxDockPipeline -v
 
 # Run with specific toolkit
-pytest tests/ -k "cdpkit" -v
+pytest test/ -k "cdpkit" -v
 ```
 
 ### Full Integration Tests
 ```bash
-# Run all tests including slow integration tests
-pytest tests/ -v --tb=short
+# Run all tests including slow integration tests WITH OUTPUT PATHS
+pytest test/ -s -v --tb=short
 
-# Run only integration tests
-pytest tests/test_pipeline_integration.py -v
+# Run only integration tests with output display
+pytest test/test_pipeline_integration.py -s -v
 
 # Run with parallel execution (if pytest-xdist installed)
-pytest tests/ -n auto
+pytest test/ -n auto
 ```
 
 ### Test with Different Configurations
 ```bash
-# Test with OpenEye toolkit (if available)
-pytest tests/ -k "openeye" -v
+# Test with OpenEye toolkit (if available) - with output paths
+pytest test/ -k "openeye" -s -v
 
-# Test specific docking engines
-pytest tests/ -k "rxdock" -v
-pytest tests/ -k "plants" -v
-pytest tests/ -k "gnina" -v
+# Test specific docking engines - with output paths
+pytest test/ -k "rxdock" -s -v
+pytest test/ -k "plants" -s -v
+pytest test/ -k "gnina" -s -v
 ```
+
+### 📁 **Understanding Test Output with `-s` Flag**
+
+When you run tests with the `-s` flag, you'll see colorful output like this:
+
+```
+============================================================
+🧪 RxDock Pipeline Test COMPLETED
+============================================================
+📁 Output Directory: /tmp/pytest-of-user/pytest-current/test_rxdock_pipeline_execution0/
+📋 Copy-paste path: /tmp/pytest-of-user/pytest-current/test_rxdock_pipeline_execution0/
+📊 Found 8 docked ligand files
+📈 Results DataFrame shape: (40, 6)
+🔍 Key files to inspect:
+   - Output files: /tmp/pytest-of-user/pytest-current/test_rxdock_pipeline_execution0/output/*.sd
+   - RxDock params: /tmp/pytest-of-user/pytest-current/test_rxdock_pipeline_execution0/rxdock.prm
+   - Cavity file: /tmp/pytest-of-user/pytest-current/test_rxdock_pipeline_execution0/rxdock.as
+============================================================
+```
+
+**Simply copy-paste the path shown after "📋 Copy-paste path:" to explore the results!**
 
 ## Test Structure
 
@@ -184,9 +244,22 @@ pytest tests/ -s
 
 ## Manual Inspection
 
-After running tests, manually inspect the generated output directories to:
+After running tests with the `-s` flag, you'll see nicely formatted output with exact paths to inspect:
+
+```
+🧪 RxDock Pipeline Test COMPLETED
+📁 Output Directory: /tmp/pytest-of-user/pytest-current/test_rxdock_pipeline_execution0/
+📋 Copy-paste path: /tmp/pytest-of-user/pytest-current/test_rxdock_pipeline_execution0/
+🔍 Key files to inspect:
+   - Output files: /path/to/output/*.sd
+   - RxDock params: /path/to/rxdock.prm
+```
+
+**Simply copy the path after "📋 Copy-paste path:" and explore!**
+
+### What to inspect manually:
 - ✅ Verify molecular structures in SDF files
-- ✅ Check docking poses are reasonable
+- ✅ Check docking poses are reasonable  
 - ✅ Validate binding site placement
 - ✅ Review score distributions
 - ✅ Confirm no obvious errors in outputs

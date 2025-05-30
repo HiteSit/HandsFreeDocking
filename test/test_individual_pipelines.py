@@ -61,9 +61,18 @@ class TestRxDockPipeline:
         assert file_validation["all_sd_files_not_empty"], "All .sd files should be non-empty"
         
         # Print info for manual inspection
-        print(f"RxDock test completed. Output directory: {persistent_tmp_workdir}")
-        print(f"Found {len(result['docked_ligands'])} docked ligand files")
-        print(f"Results DataFrame shape: {result['results_df'].shape}")
+        print(f"\n{'='*60}")
+        print(f"🧪 RxDock Pipeline Test COMPLETED")
+        print(f"{'='*60}")
+        print(f"📁 Output Directory: {persistent_tmp_workdir}")
+        print(f"📋 Copy-paste path: {persistent_tmp_workdir}")
+        print(f"📊 Found {len(result['docked_ligands'])} docked ligand files")
+        print(f"📈 Results DataFrame shape: {result['results_df'].shape}")
+        print(f"🔍 Key files to inspect:")
+        print(f"   - Output files: {persistent_tmp_workdir}/output/*.sd")
+        print(f"   - RxDock params: {persistent_tmp_workdir}/rxdock.prm")
+        print(f"   - Cavity file: {persistent_tmp_workdir}/rxdock.as")
+        print(f"{'='*60}\n")
 
 
 class TestPlantsPipeline:
@@ -117,8 +126,18 @@ class TestPlantsPipeline:
             assert output_validator["file_exists_and_not_empty"](ranking_file), f"Ranking file should exist in {subdir}"
         
         # Print info for manual inspection
-        print(f"PLANTS test completed. Output directory: {persistent_tmp_workdir}")
-        print(f"Found {len(plants_subdirs)} PLANTS output subdirectories")
+        print(f"\n{'='*60}")
+        print(f"🌱 PLANTS Pipeline Test COMPLETED")
+        print(f"{'='*60}")
+        print(f"📁 Output Directory: {persistent_tmp_workdir}")
+        print(f"📋 Copy-paste path: {persistent_tmp_workdir}")
+        print(f"📊 Found {len(plants_subdirs)} PLANTS output subdirectories")
+        print(f"🔍 Key files to inspect:")
+        print(f"   - Final SDF files: {persistent_tmp_workdir}/output/*_Plants.sdf")
+        print(f"   - PLANTS outputs: {persistent_tmp_workdir}/output_plants/*/")
+        print(f"   - Ranking files: {persistent_tmp_workdir}/output_plants/*/ranking.csv")
+        print(f"   - MOL2 ligands: {persistent_tmp_workdir}/ligands_mol2/")
+        print(f"{'='*60}\n")
 
 
 class TestGninaPipeline:
@@ -175,8 +194,18 @@ class TestGninaPipeline:
         assert output_validator["file_exists_and_not_empty"](log_file), "Command log should exist"
         
         # Print info for manual inspection
-        print(f"GNINA test completed. Output directory: {persistent_tmp_workdir}")
-        print(f"Used protonation method: {protonation_method}")
+        print(f"\n{'='*60}")
+        print(f"🧬 GNINA Pipeline Test COMPLETED")
+        print(f"{'='*60}")
+        print(f"📁 Output Directory: {persistent_tmp_workdir}")
+        print(f"📋 Copy-paste path: {persistent_tmp_workdir}")
+        print(f"⚙️  Used protonation method: {protonation_method}")
+        print(f"🔍 Key files to inspect:")
+        print(f"   - Docked molecules: {persistent_tmp_workdir}/output/*_Gnina.sdf")
+        print(f"   - Prepared protein: {persistent_tmp_workdir}/{protein_pdb.stem}_prep.pdb")
+        print(f"   - Split ligands: {persistent_tmp_workdir}/ligands_split/")
+        print(f"   - Command log: {persistent_tmp_workdir}/gnina_commands.log")
+        print(f"{'='*60}\n")
 
 
 @pytest.mark.skipif(not OPENEYE_AVAILABLE, reason="OpenEye toolkit not available")
@@ -235,8 +264,17 @@ class TestOpenEyePipeline:
         assert output_validator["file_exists_and_not_empty"](design_unit), "Design unit file should exist"
         
         # Print info for manual inspection
-        print(f"OpenEye test completed. Output directory: {persistent_tmp_workdir}")
-        print(f"Processed {len(docking_tuple)} ligands")
+        print(f"\n{'='*60}")
+        print(f"👁️  OpenEye Pipeline Test COMPLETED")
+        print(f"{'='*60}")
+        print(f"📁 Output Directory: {persistent_tmp_workdir}")
+        print(f"📋 Copy-paste path: {persistent_tmp_workdir}")
+        print(f"📊 Processed {len(docking_tuple)} ligands")
+        print(f"🔍 Key files to inspect:")
+        print(f"   - Docked molecules: {persistent_tmp_workdir}/output/*_Eye.sdf")
+        print(f"   - Design unit: {persistent_tmp_workdir}/{protein_pdb.stem}_Receptor.oedu")
+        print(f"   - Complex: {persistent_tmp_workdir}/complex.pdb")
+        print(f"{'='*60}\n")
 
 
 class TestPipelineRobustness:
@@ -277,7 +315,13 @@ class TestPipelineRobustness:
             print(f"Expected failure with empty input: {e}")
             assert True  # Test passes if it fails gracefully
         
-        print(f"Robustness test completed. Test directory: {persistent_tmp_workdir}")
+        print(f"\n{'='*60}")
+        print(f"🛡️  Pipeline Robustness Test COMPLETED")
+        print(f"{'='*60}")
+        print(f"📁 Test Directory: {persistent_tmp_workdir}")
+        print(f"📋 Copy-paste path: {persistent_tmp_workdir}")
+        print(f"🔍 Check subdirectories for partial outputs or error logs")
+        print(f"{'='*60}\n")
 
 
 # Utility test functions
