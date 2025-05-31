@@ -26,6 +26,21 @@ def crystal_sdf(test_data_dir) -> Path:
     """Test crystal ligand SDF file."""
     return test_data_dir / "Fake_Crystal.sdf"
 
+@pytest.fixture(scope="session")
+def mol2_broken_files(test_data_dir) -> Dict[str, str]:
+    """Mapping of broken mol2 files to their template SMILES strings."""
+    mol2_dir = test_data_dir / "Mol2_Broken"
+    
+    # Map mol2 files to their known SMILES strings
+    # These are well-known flavonoid natural products
+    return {
+        str(mol2_dir / "6-methylflavone_Broken.mol2"): "CC1=CC2=C(C=C1)OC(=CC2=O)C3=CC=CC=C3",
+        str(mol2_dir / "Apigenin_Broken.mol2"): "C1=CC(=CC=C1C2=CC(=O)C3=C(C=C(C=C3O2)O)O)O",
+        str(mol2_dir / "Chrysin_Broken.mol2"): "C1=CC=C(C=C1)C2=CC(=O)C3=C(C=C(C=C3O2)O)O",
+        str(mol2_dir / "Eriodictyol_Broken.mol2"): "C1C(OC2=CC(=CC(=C2C1=O)O)O)C3=CC(=C(C=C3)O)O",
+        str(mol2_dir / "Fisetin_Broken.mol2"): "C1=CC(=C(C=C1C2=C(C(=O)C3=C(O2)C=C(C=C3)O)O)O)O",
+    }
+
 # Fixtures for test configuration
 @pytest.fixture(scope="session")
 def test_settings() -> Tuple[int, int]:
