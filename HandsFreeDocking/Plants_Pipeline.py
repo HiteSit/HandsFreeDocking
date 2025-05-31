@@ -17,6 +17,7 @@ import biotite.structure.io.pdb as pdb
 import pandas as pd
 import numpy as np
 
+from rdkit import Chem
 from rdkit.Chem import PandasTools
 from openbabel import pybel, openbabel
 
@@ -30,6 +31,7 @@ except ImportError:
 from .tools.Protein_Preparation import ProteinPreparation_Chimera
 from .tools.tools import pybel_converter, pybel_flagger
 from .tools.Ligand_Preparation import LigandPreparator
+from .tools.Fix_Mol2 import fix_docking_poses_from_mol2
 
 import logging
 logging.basicConfig(
@@ -73,6 +75,9 @@ class Plants_Docking:
         self.docked_final_dir.mkdir(exist_ok=True)
 
         self.docked_plants: List[Path] = []
+        
+        # Store template SMILES mapping for MOL2 fixing
+        self.template_smiles_mapping: Dict[str, str] = {}
         
         # Set the protonation method for ligand preparation
         if protonation_method.lower() not in ["cdp", "oe", "scrubber"]:
@@ -140,6 +145,35 @@ class Plants_Docking:
         # Prepare molecules from SDF
         prepared_mols = preparator.prepare_from_sdf(self.ligands_sdf)
         
+        # Store template SMILES mapping before saving to MOL2
+        # Use the original molecules from the SDF file for more stable templates
+        logger.info(f"Storing template SMILES mapping for MOL2 fixing")
+        original_supplier = Chem.SDMolSupplier(str(self.ligands_sdf))
+        
+        # Create a mapping from original molecules to their SMILES
+        original_smiles_map = {}
+        for mol in original_supplier:
+            if mol is not None:
+                mol_name = mol.GetProp("_Name") if mol.HasProp("_Name") else f"mol_{len(original_smiles_map)}"
+                # Use the original molecule SMILES (before protonation/preparation)
+                mol_smiles = Chem.MolToSmiles(mol)
+                original_smiles_map[mol_name] = mol_smiles
+                
+        # Map prepared molecules back to original SMILES
+        for mol in prepared_mols:
+            if mol is not None:
+                mol_name = mol.GetProp("_Name")
+                # Extract base name (before _Iso suffix)
+                base_name = mol_name.split("_Iso")[0]  # e.g., "Apigenin_Iso0" -> "Apigenin"
+                if base_name in original_smiles_map:
+                    self.template_smiles_mapping[mol_name] = original_smiles_map[base_name]
+                    logger.debug(f"Mapped {mol_name} to original SMILES: {original_smiles_map[base_name]}")
+                else:
+                    # Fallback to prepared molecule SMILES
+                    mol_smiles = Chem.MolToSmiles(mol)
+                    self.template_smiles_mapping[mol_name] = mol_smiles
+                    logger.warning(f"No original SMILES found for {base_name}, using prepared: {mol_smiles}")
+        
         # Save to MOL2 format for Plants
         logger.info(f"Converting prepared ligands to mol2 format")
         mol2_paths = preparator.save_to_mol2(prepared_mols, ligands_mol2_folder)
@@ -188,7 +222,7 @@ cluster_rmsd 1.0
         return conf_path
 
     def _save_to_sdf(self, df: pd.DataFrame, name: str):
-        docked_final_sdf = self.docked_final_dir / f"{name}.sdf"
+        docked_final_sdf = self.docked_final_dir / f"{name}_Plants.sdf"
         docked_final_sdf = docked_final_sdf.absolute()
         PandasTools.WriteSDF(df, str(docked_final_sdf),
                              idName="LIGAND_ENTRY", molColName="Molecule",
@@ -227,7 +261,7 @@ cluster_rmsd 1.0
                     # Return empty dataframe with ligand name
                     return (pd.DataFrame(), docked_plants.parent.name)
 
-                converter = Convert_Plants(docked_plants)
+                converter = Convert_Plants(docked_plants, self.template_smiles_mapping)
                 comb_df = converter.main()
                 return (comb_df, docked_plants.parent.name)
             except Exception as e:
@@ -274,21 +308,79 @@ cluster_rmsd 1.0
 
 
 class Convert_Plants:
-    def __init__(self, plants_mol: Path):
+    def __init__(self, plants_mol: Path, template_smiles_mapping: Optional[Dict[str, str]] = None):
         self.plants_mol = plants_mol
         self.plants_dir: Path = self.plants_mol.parent
+        self.template_smiles_mapping = template_smiles_mapping or {}
 
     def get_rdmol_df(self):
-        rd_mols: List = dm.read_mol2file(self.plants_mol)
+        # Try normal sanitized reading first
+        try:
+            logger.debug(f"Attempting normal MOL2 reading with sanitization for {self.plants_mol}")
+            rd_mols: List = dm.read_mol2file(self.plants_mol, sanitize=True)
+            logger.debug(f"Successfully read {len(rd_mols)} molecules with normal sanitization")
+            
+            # Check if we actually got valid molecules
+            valid_mols = [mol for mol in rd_mols if mol is not None]
+            if len(valid_mols) == 0:
+                raise Exception("All molecules failed sanitization")
+            elif len(valid_mols) < len(rd_mols):
+                logger.warning(f"Some molecules failed sanitization: {len(valid_mols)}/{len(rd_mols)} valid")
+                rd_mols = valid_mols
+            
+        except Exception as e:
+            logger.warning(f"Normal MOL2 reading failed for {self.plants_mol}: {e}")
+            logger.info(f"Attempting Fix_Mol2 fallback strategy for {self.plants_mol}...")
+            
+            try:
+                logger.info(f"=== ENTERING Fix_Mol2 fallback strategy ===")
+                # Get molecule name from directory name (e.g., "Apigenin_Iso0")
+                mol_name = self.plants_dir.name
+                logger.info(f"Processing molecule: {mol_name}")
+                template_smiles = self.template_smiles_mapping.get(mol_name)
+                
+                if template_smiles is None:
+                    logger.error(f"No template SMILES found for molecule {mol_name}")
+                    logger.error(f"Available templates: {list(self.template_smiles_mapping.keys())}")
+                    return pd.DataFrame()
+                    
+                logger.info(f"Found template SMILES for {mol_name}: {template_smiles[:50]}...")
+                
+                # Read molecules without sanitization
+                broken_mols = dm.read_mol2file(self.plants_mol, sanitize=False)
+                logger.info(f"Read {len(broken_mols)} unsanitized molecules from {self.plants_mol}")
+                
+                # Apply Fix_Mol2 strategy
+                logger.info(f"Applying Fix_Mol2 strategy using template SMILES: {template_smiles}")
+                logger.info(f"MOL2 file path: {self.plants_mol}")
+                logger.info(f"First broken mol atoms: {broken_mols[0].GetNumAtoms() if broken_mols else 'No molecules'}")
+                rd_mols = fix_docking_poses_from_mol2(broken_mols, template_smiles, verbose=False)  # Disable verbose for cleaner output
+                
+                # Filter out None results and log details
+                valid_mols = [mol for mol in rd_mols if mol is not None]
+                logger.info(f"Fix_Mol2 strategy: {len(valid_mols)} fixed out of {len(broken_mols)} input molecules")
+                if len(valid_mols) != len(rd_mols):
+                    logger.warning(f"Fix_Mol2 returned {len(rd_mols) - len(valid_mols)} None molecules")
+                rd_mols = valid_mols
+                
+                if not rd_mols:
+                    logger.error(f"Fix_Mol2 strategy failed to fix any molecules for {self.plants_mol}")
+                    return pd.DataFrame()
+                    
+            except Exception as fix_error:
+                logger.error(f"Fix_Mol2 fallback strategy also failed for {self.plants_mol}: {fix_error}")
+                return pd.DataFrame()
 
         rows = []
         for rd_mol in rd_mols:
-            row = {
-                "LIGAND_ENTRY": rd_mol.GetProp("_Name"),
-                "Molecule": rd_mol
-            }
-            rows.append(row)
-
+            if rd_mol is not None:  # Filter out None molecules
+                row = {
+                    "LIGAND_ENTRY": rd_mol.GetProp("_Name"),
+                    "Molecule": rd_mol
+                }
+                rows.append(row)
+        
+        logger.info(f"Created {len(rows)} rows for DataFrame from {len(rd_mols)} molecules")
         return pd.DataFrame(rows)
 
     def retrieve_csv(self):
@@ -334,6 +426,19 @@ class Convert_Plants:
         
         # Merge the dataframes
         try:
+            # Check if both dataframes have data and the required column
+            if rdmol_df.empty or score_df.empty:
+                logger.warning(f"Cannot merge: rdmol_df empty={rdmol_df.empty}, score_df empty={score_df.empty}")
+                return pd.DataFrame()
+            
+            if "LIGAND_ENTRY" not in rdmol_df.columns:
+                logger.error(f"LIGAND_ENTRY column missing from molecule dataframe")
+                return pd.DataFrame()
+                
+            if "LIGAND_ENTRY" not in score_df.columns:
+                logger.error(f"LIGAND_ENTRY column missing from score dataframe")
+                return pd.DataFrame()
+            
             # Try standard merge
             comb_df = pd.merge(rdmol_df, score_df, on="LIGAND_ENTRY")
         except Exception as e:
