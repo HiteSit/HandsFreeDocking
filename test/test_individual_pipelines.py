@@ -87,11 +87,11 @@ class TestPlantsPipeline:
         crystal_sdf,
         ligands_sdf,
         protonation_method_ligand,
-        small_test_settings,
+        test_settings,
         output_validator
     ):
         """Test PLANTS pipeline runs successfully and produces expected outputs."""
-        n_confs, n_cpus = small_test_settings
+        n_confs, n_cpus = test_settings
         
         # Initialize PLANTS pipeline
         plants_pipeline = Plants_Docking(
