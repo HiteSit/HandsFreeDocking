@@ -369,13 +369,3 @@ class Convert_Plants:
             ]
         
         return comb_df
-    
-if __name__ == "__main__":
-    workdir = Path("./TMP_Docking")
-    pdb_ID = Path("./0_Examples/8gcy.pdb")
-    crystal_path = Path("./0_Examples/Crystal.sdf")
-    ligands_sdf = Path("./0_Examples/some_ligands.sdf")
-
-    # Initialize and run the Plants docking pipeline
-    plants_pipeline = Plants_Docking(workdir, pdb_ID, crystal_path, ligands_sdf, protonation_method="oe", tautomer_score_threshold=None)
-    plants_pipeline.main(n_confs=10, n_cpus=2)
