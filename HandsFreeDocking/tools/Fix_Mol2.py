@@ -318,7 +318,7 @@ def find_best_atom_mapping(sigs1: List, sigs2: List) -> Optional[List[int]]:
 
 
 # Convenience function for direct file processing
-def process_mol2_file(
+def hard_fix_mol2(
     mol2_filename: str,
     template_smiles: str,
     output_sdf: Optional[str] = None,
