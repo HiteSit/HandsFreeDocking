@@ -45,12 +45,12 @@ def mol2_broken_files(test_data_dir) -> Dict[str, str]:
 @pytest.fixture(scope="session")
 def test_settings() -> Tuple[int, int]:
     """Test settings for docking (n_conformers, n_cpus)."""
-    return (5, 2)  # Reduced for faster testing
+    return (5, 2)  # Default: 5 conformers, 2 CPUs
 
 @pytest.fixture(scope="session")
 def small_test_settings() -> Tuple[int, int]:
     """Minimal test settings for very fast testing."""
-    return (2, 1)
+    return (2, 1)  # Default: 2 conformers, 1 CPU
 
 # Fixtures for temporary directories
 @pytest.fixture

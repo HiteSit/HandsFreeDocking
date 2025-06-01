@@ -344,7 +344,7 @@ class PipelineDocking:
         logger.info("Starting RxDock docking")
         
         # Create directory for RxDock
-        rxdock_dir = self.workdir / "RxDock"
+        rxdock_dir = self.workdir / "Rxdock"
         rxdock_dir.mkdir(exist_ok=True)
         
         # Initialize RxDock docking pipeline
