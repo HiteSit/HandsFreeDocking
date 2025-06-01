@@ -116,6 +116,7 @@ class TestPlantsPipeline:
         file_validation = output_validator["output_files"](persistent_tmp_workdir, "plants")
         assert file_validation["has_plants_sdf_files"], "Should have _Plants.sdf output files"
         assert file_validation["all_plants_sdf_files_not_empty"], "All _Plants.sdf files should be non-empty"
+        assert file_validation["no_unknown_atoms_in_plants_sdf"], "Plants SDF files should not contain unknown atoms (*)"
         
         # Check for intermediate PLANTS files
         output_plants_dir = persistent_tmp_workdir / "output_plants"

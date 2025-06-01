@@ -151,6 +151,37 @@ def output_validator():
         
         return results
     
+    def has_unknown_atoms_in_sdf(sdf_file_path: Path) -> bool:
+        """
+        Check if any molecule in an SDF file contains unknown atoms (*).
+        
+        Parameters:
+        -----------
+        sdf_file_path : Path
+            Path to the SDF file
+            
+        Returns:
+        --------
+        bool
+            True if any molecule contains unknown atoms, False otherwise
+        """
+        from rdkit import Chem
+        
+        # Create supplier without sanitization
+        supplier = Chem.SDMolSupplier(str(sdf_file_path), sanitize=False)
+        
+        for mol_idx, mol in enumerate(supplier):
+            # Skip if molecule couldn't be parsed
+            if mol is None:
+                continue
+                
+            # Check each atom in the molecule
+            for atom in mol.GetAtoms():
+                if atom.GetAtomicNum() == 0:  # Atomic number 0 indicates a dummy/unknown atom
+                    return True
+        
+        return False
+
     def validate_output_files(workdir: Path, engine: str) -> Dict[str, bool]:
         """Validate expected output files for a docking engine."""
         results = {}
@@ -170,6 +201,10 @@ def output_validator():
             sdf_files = list(output_dir.glob("*_Plants.sdf"))
             results["has_plants_sdf_files"] = len(sdf_files) > 0
             results["all_plants_sdf_files_not_empty"] = all(f.stat().st_size > 0 for f in sdf_files)
+            # Check for unknown atoms in ALL Plants SDF files
+            results["no_unknown_atoms_in_plants_sdf"] = all(
+                not has_unknown_atoms_in_sdf(sdf_file) for sdf_file in sdf_files
+            )
         elif engine == "gnina":
             # Gnina creates _Gnina.sdf files
             sdf_files = list(output_dir.glob("*_Gnina.sdf"))
