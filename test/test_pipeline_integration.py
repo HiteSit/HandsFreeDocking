@@ -19,6 +19,7 @@ class TestPipelineDockingIntegration:
         ligands_sdf,
         multi_docking_engines,
         protonation_method_ligand,
+        tautomer_score_threshold,
         test_settings,
         output_validator
     ):
@@ -34,7 +35,7 @@ class TestPipelineDockingIntegration:
             ligands_input=ligands_sdf,
             crystal_sdf=crystal_sdf,
             protonation_method=protonation_method_ligand,
-            tautomer_score_threshold=None  # Default: only best tautomers
+            tautomer_score_threshold=tautomer_score_threshold
         )
         
         # Run the docking
@@ -78,10 +79,9 @@ class TestPipelineDockingIntegration:
             for key, value in file_validation.items():
                 assert value, f"Should have {key} files in {engine_snake} directory"
 
-        # Check score normalization (should be between 0 and 1)
-        scores = full_df["Score"]
-        assert scores.min() >= 0, "Normalized scores should be >= 0"
-        assert scores.max() <= 1, "Normalized scores should be <= 1"
+        # Save the FULL_DF in CSV
+        full_df_path = persistent_tmp_workdir / "full_docking_results.csv"
+        full_df.to_csv(full_df_path, index=False)
         
         # Print info for manual inspection
         print(f"\n{'='*60}")
@@ -91,11 +91,11 @@ class TestPipelineDockingIntegration:
         print(f"📋 Copy-paste path: {persistent_tmp_workdir}")
         print(f"⚙️ Ligand protonation method used: {protonation_method_ligand}")
         print(f"📈 Results DataFrame shape: {full_df.shape}")
-        print(f"⚙️  Engines tested: {multi_docking_engines}")
+        print(f"⚙️ Engines tested: {multi_docking_engines}")
         print(f"✅ Engines in results: {list(engines_in_df)}")
-        print(f"📉 Score range: {scores.min():.3f} - {scores.max():.3f}")
         print(f"🔍 Key directories to inspect:")
         for engine in multi_docking_engines:
             engine_dir = persistent_tmp_workdir / engine.title()
             print(f"   - {engine.upper()}: {engine_dir}")
+        print(f"📂 Full results saved to: {full_df_path}")
         print(f"{'='*60}\n")

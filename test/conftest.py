@@ -19,7 +19,7 @@ def protein_pdb(test_data_dir) -> Path:
 @pytest.fixture(scope="session")
 def ligands_sdf(test_data_dir) -> Path:
     """Test ligands SDF file.""" 
-    return test_data_dir / "Ligands_To_Dock.sdf"
+    return test_data_dir / "Ligands_Complex.sdf"
 
 @pytest.fixture(scope="session")
 def crystal_sdf(test_data_dir) -> Path:
@@ -88,6 +88,11 @@ def protonation_method_ligand(request) -> str:
 @pytest.fixture(params=["protoss", "pdbfixer"])
 def protein_protonation_method(request) -> str:
     """Parameterized fixture for different protein protonation methods."""
+    return request.param
+
+@pytest.fixture(params=[None, 2])
+def tautomer_score_threshold(request) -> Any:
+    """Parameterized fixture for tautomer score threshold."""
     return request.param
 
 # Fixtures for individual docking engines
