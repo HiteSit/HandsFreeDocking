@@ -342,7 +342,9 @@ class Convert_Plants:
                 if template_smiles is None:
                     logger.error(f"No template SMILES found for molecule {mol_name}")
                     logger.error(f"Available templates: {list(self.template_smiles_mapping.keys())}")
-                    return pd.DataFrame()
+                    logger.info(f"Skipping Fix_Mol2 and going directly to Pybel pure conversion fallback...")
+                    # Don't return here, let it fall through to pybel fallback
+                    raise Exception("No template SMILES available for Fix_Mol2 strategy")
                     
                 logger.info(f"Found template SMILES for {mol_name}: {template_smiles[:50]}...")
                 
@@ -365,11 +367,51 @@ class Convert_Plants:
                 
                 if not rd_mols:
                     logger.error(f"Fix_Mol2 strategy failed to fix any molecules for {self.plants_mol}")
-                    return pd.DataFrame()
+                    raise Exception("Fix_Mol2 strategy could not fix any molecules")
                     
             except Exception as fix_error:
                 logger.error(f"Fix_Mol2 fallback strategy also failed for {self.plants_mol}: {fix_error}")
-                return pd.DataFrame()
+                logger.info(f"Attempting Pybel pure conversion fallback for {self.plants_mol}...")
+                
+                try:
+                    logger.info(f"=== ENTERING Pybel pure conversion fallback ===")
+                    # Read MOL2 file using OpenBabel/pybel
+                    pybel_mols = list(pybel.readfile("mol2", str(self.plants_mol)))
+                    logger.info(f"Pybel successfully read {len(pybel_mols)} molecules from {self.plants_mol}")
+                    
+                    # Convert each pybel molecule to RDKit via SDF intermediate
+                    rd_mols = []
+                    for i, pybel_mol in enumerate(pybel_mols):
+                        try:
+                            # Convert pybel molecule to SDF string
+                            sdf_string = pybel_mol.write("sdf")
+                            
+                            # Create RDKit molecule from SDF (no sanitization to avoid validation issues)
+                            rdkit_mol = Chem.MolFromMolBlock(sdf_string, sanitize=False)
+                            
+                            if rdkit_mol is not None:
+                                # Use directory name for molecule identification
+                                mol_base_name = self.plants_dir.name  # e.g., "Lig_Complex_3_Iso0_Taut0"
+                                pose_name = f"{mol_base_name}_pose_{i+1}"
+                                rdkit_mol.SetProp("_Name", pose_name)
+                                rd_mols.append(rdkit_mol)
+                                logger.debug(f"Successfully converted pose {i+1}: {pose_name}")
+                            else:
+                                logger.warning(f"Failed to create RDKit molecule from pybel molecule {i+1}")
+                                
+                        except Exception as mol_error:
+                            logger.warning(f"Error converting pybel molecule {i+1}: {mol_error}")
+                            continue
+                    
+                    logger.info(f"Pybel pure conversion: {len(rd_mols)} successfully converted out of {len(pybel_mols)} molecules")
+                    
+                    if not rd_mols:
+                        logger.error(f"Pybel pure conversion failed to convert any molecules for {self.plants_mol}")
+                        return pd.DataFrame()
+                        
+                except Exception as pybel_error:
+                    logger.error(f"Pybel pure conversion fallback also failed for {self.plants_mol}: {pybel_error}")
+                    return pd.DataFrame()
 
         rows = []
         for rd_mol in rd_mols:
