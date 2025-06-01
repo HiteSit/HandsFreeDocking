@@ -38,7 +38,7 @@ class TestRxDockPipeline:
             crystal_path=crystal_sdf,
             ligands_sdf=ligands_sdf,
             protonation_method=protonation_method_ligand,
-            tautomer_score_threshold=2.0  # Enable tautomer enumeration for RxDock
+            tautomer_score_threshold=2.0
         )
         
         # Run the pipeline
@@ -100,7 +100,7 @@ class TestPlantsPipeline:
             crystal_path=crystal_sdf,
             ligands_sdf=ligands_sdf,
             protonation_method=protonation_method_ligand,
-            tautomer_score_threshold=None  # Default: only best tautomers
+            tautomer_score_threshold=2.0
         )
         
         # Run the pipeline

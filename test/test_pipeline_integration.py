@@ -18,7 +18,7 @@ class TestPipelineDockingIntegration:
         crystal_sdf,
         ligands_sdf,
         multi_docking_engines,
-        protonation_method_ligand_oe_only,
+        protonation_method_ligand,
         tautomer_score_threshold,
         test_settings,
         output_validator
@@ -34,7 +34,7 @@ class TestPipelineDockingIntegration:
             protein_pdb=protein_pdb,
             ligands_input=ligands_sdf,
             crystal_sdf=crystal_sdf,
-            protonation_method=protonation_method_ligand_oe_only,
+            protonation_method=protonation_method_ligand,
             tautomer_score_threshold=tautomer_score_threshold
         )
         
@@ -89,7 +89,7 @@ class TestPipelineDockingIntegration:
         print(f"{'='*60}")
         print(f"📁 Output Directory: {persistent_tmp_workdir}")
         print(f"📋 Copy-paste path: {persistent_tmp_workdir}")
-        print(f"⚙️ Ligand protonation method used: {protonation_method_ligand_oe_only}")
+        print(f"⚙️ Ligand protonation method used: {protonation_method_ligand}")
         print(f"📈 Results DataFrame shape: {full_df.shape}")
         print(f"⚙️ Engines tested: {multi_docking_engines}")
         print(f"✅ Engines in results: {list(engines_in_df)}")
