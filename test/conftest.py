@@ -85,6 +85,20 @@ def protonation_method_ligand(request) -> str:
     
     return method_name
 
+@pytest.fixture(params=["oe"])
+def protonation_method_ligand_oe_only(request) -> str:
+    """Parameterized fixture for OpenEye ligand protonation method only."""
+    method_name = request.param
+    
+    # Skip OpenEye tests if not available
+    if method_name == "oe":
+        try:
+            from openeye import oechem
+        except ImportError:
+            pytest.skip("OpenEye toolkit not available")
+    
+    return method_name
+
 @pytest.fixture(params=["protoss", "pdbfixer"])
 def protein_protonation_method(request) -> str:
     """Parameterized fixture for different protein protonation methods."""
@@ -109,7 +123,7 @@ def multi_docking_engines() -> list:
 @pytest.fixture
 def all_docking_engines() -> list:
     """Fixture for testing all available docking engines."""
-    engines = ["rxdock", "plants", "gnina"]
+    engines = ["rxdock", "plants", "gnina", "openeye"]
     
     # Add OpenEye if available
     try:
