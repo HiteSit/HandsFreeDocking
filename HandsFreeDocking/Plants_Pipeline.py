@@ -224,152 +224,9 @@ cluster_rmsd 1.0
     def _save_to_sdf(self, df: pd.DataFrame, name: str):
         docked_final_sdf = self.docked_final_dir / f"{name}_Plants.sdf"
         docked_final_sdf = docked_final_sdf.absolute()
-        
-        # Try using PandasTools first (works for sanitized molecules)
-        try:
-            PandasTools.WriteSDF(df, str(docked_final_sdf),
-                                 idName="LIGAND_ENTRY", molColName="Molecule",
-                                 properties=list(df.columns))
-            logger.debug(f"Successfully saved SDF using PandasTools: {docked_final_sdf}")
-        except Exception as e:
-            logger.warning(f"PandasTools.WriteSDF failed for {name}: {e}")
-            logger.info(f"Attempting manual SDF writing for unsanitized molecules...")
-            
-            # Fallback: manual SDF writing for unsanitized molecules
-            try:
-                written_count = self._write_unsanitized_sdf(df, docked_final_sdf)
-                if written_count > 0:
-                    logger.info(f"Successfully saved SDF using manual method: {docked_final_sdf} ({written_count} molecules)")
-                else:
-                    logger.error(f"Manual SDF writing failed: no molecules could be written for {name}")
-                    logger.info(f"Attempting ultimate fallback: recreate from source using pybel conversion...")
-                    
-                    # Final fallback: use pybel to recreate the molecules and save to SDF
-                    self._pybel_sdf_fallback(name, docked_final_sdf)
-            except Exception as manual_error:
-                logger.error(f"Manual SDF writing also failed for {name}: {manual_error}")
-                logger.info(f"Attempting ultimate fallback: recreate from source using pybel conversion...")
-                
-                # Final fallback: use pybel to recreate the molecules and save to SDF
-                self._pybel_sdf_fallback(name, docked_final_sdf)
-    
-    def _write_unsanitized_sdf(self, df: pd.DataFrame, output_path: Path):
-        """
-        Manually write SDF file for unsanitized molecules using RDKit SDWriter directly
-        Returns the number of molecules successfully written
-        """
-        from rdkit import Chem
-        
-        written_count = 0
-        with Chem.SDWriter(str(output_path)) as writer:
-            for _, row in df.iterrows():
-                mol = row["Molecule"]
-                if mol is not None:
-                    # Set molecule name
-                    if "LIGAND_ENTRY" in row:
-                        mol.SetProp("_Name", str(row["LIGAND_ENTRY"]))
-                    
-                    # Set all other properties from the dataframe
-                    for col in df.columns:
-                        if col != "Molecule" and not pd.isna(row[col]):
-                            mol.SetProp(col, str(row[col]))
-                    
-                    # Write molecule (this should work even for unsanitized molecules)
-                    try:
-                        writer.write(mol)
-                        written_count += 1
-                    except Exception as mol_error:
-                        logger.warning(f"Failed to write molecule {row.get('LIGAND_ENTRY', 'unknown')}: {mol_error}")
-                        continue
-        
-        return written_count
-
-    def _pybel_sdf_fallback(self, name: str, output_path: Path):
-        """
-        Ultimate fallback: use pybel to convert MOL2 directly to SDF.
-        This preserves 3D coordinates and creates a valid SDF file even if RDKit fails.
-        """
-        try:
-            logger.info(f"Starting pybel SDF fallback for {name}")
-            
-            # Find the corresponding MOL2 file
-            mol2_file = None
-            for docked_plant in self.docked_plants:
-                if docked_plant.parent.name == name:
-                    mol2_file = docked_plant
-                    break
-            
-            if mol2_file is None or not mol2_file.exists():
-                logger.error(f"Could not find MOL2 file for {name}")
-                return
-            
-            logger.info(f"Converting {mol2_file} to SDF using pybel")
-            
-            # Read with pybel and convert to SDF
-            pybel_mols = list(pybel.readfile("mol2", str(mol2_file)))
-            if not pybel_mols:
-                logger.error(f"Pybel could not read any molecules from {mol2_file}")
-                return
-            
-            logger.info(f"Pybel loaded {len(pybel_mols)} molecules from {mol2_file}")
-            
-            # Write to SDF format
-            with open(output_path, 'w') as f:
-                for i, pybel_mol in enumerate(pybel_mols):
-                    # Set molecule title/name
-                    if hasattr(pybel_mol, 'title') and pybel_mol.title:
-                        mol_name = pybel_mol.title
-                    else:
-                        mol_name = f"{name}_entry_{i+1:05d}_conf_{i+1:02d}"
-                    
-                    # Convert to SDF string
-                    sdf_string = pybel_mol.write("sdf")
-                    
-                    # Modify the SDF string to add properties following the SDF field philosophy
-                    lines = sdf_string.strip().split('\n')
-                    if lines:
-                        # Find the $$$$  line and add properties before it
-                        insert_pos = len(lines)
-                        for j, line in enumerate(lines):
-                            if line.strip() == "$$$$":
-                                insert_pos = j
-                                break
-                        
-                        # Add properties
-                        properties = [
-                            f">  <LIGAND_ENTRY>",
-                            f"{mol_name}_Plants-P{i+1}",
-                            "",
-                            f">  <Original_Name>",
-                            f"{mol_name}",
-                            "",
-                            f">  <Conversion_Method>",
-                            f"pybel_fallback",
-                            "",
-                            f">  <Note>",
-                            f"Converted from broken MOL2 using pybel as ultimate fallback",
-                            ""
-                        ]
-                        
-                        # Insert properties
-                        for prop in reversed(properties):
-                            lines.insert(insert_pos, prop)
-                        
-                        # Write to file
-                        f.write('\n'.join(lines) + '\n')
-            
-            logger.info(f"Pybel SDF fallback succeeded: saved {len(pybel_mols)} molecules to {output_path}")
-            
-        except Exception as e:
-            logger.error(f"Pybel SDF fallback failed for {name}: {e}")
-            # Create a minimal placeholder file to avoid completely empty output
-            try:
-                with open(output_path, 'w') as f:
-                    f.write(f"# Failed to convert {name} - all conversion strategies exhausted\n")
-                    f.write(f"# Error: {str(e)}\n")
-                logger.warning(f"Created placeholder file for {name} - all conversion strategies failed")
-            except:
-                logger.error(f"Could not even create placeholder file for {name}")
+        PandasTools.WriteSDF(df, str(docked_final_sdf),
+                             idName="LIGAND_ENTRY", molColName="Molecule",
+                             properties=list(df.columns))
 
     def main(self, n_confs: int, n_cpus: int):
         self._source_macro()
@@ -404,28 +261,13 @@ cluster_rmsd 1.0
                     # Return empty dataframe with ligand name
                     return (pd.DataFrame(), docked_plants.parent.name)
 
-                # Let Convert_Plants handle its own exceptions and fallback strategies
-                logger.info(f"Creating Convert_Plants object for {docked_plants.parent.name}")
                 converter = Convert_Plants(docked_plants, self.template_smiles_mapping)
-                logger.info(f"Calling converter.main() for {docked_plants.parent.name}")
                 comb_df = converter.main()
-                logger.info(f"converter.main() completed for {docked_plants.parent.name}, got {len(comb_df)} rows")
                 return (comb_df, docked_plants.parent.name)
-            except subprocess.CalledProcessError as e:
-                # PLANTS docking command failed
-                logger.error(f"PLANTS docking failed for ligand {docked_plants.parent.name}: {str(e)}")
-                return (pd.DataFrame(), docked_plants.parent.name)
             except Exception as e:
-                # Only catch truly catastrophic errors that prevent basic processing
-                logger.error(f"Unexpected error processing ligand {docked_plants.parent.name}: {str(e)}")
-                # Even in this case, try to create the converter and let it handle the problem
-                try:
-                    if docked_plants.exists():
-                        converter = Convert_Plants(docked_plants, self.template_smiles_mapping)
-                        comb_df = converter.main()
-                        return (comb_df, docked_plants.parent.name)
-                except:
-                    pass
+                # Log the error but don't fail the entire process
+                logger.error(f"Error processing ligand {docked_plants.parent.name}: {str(e)}")
+                # Return empty dataframe with ligand name
                 return (pd.DataFrame(), docked_plants.parent.name)
 
         # Process ligands with two options
@@ -434,11 +276,12 @@ cluster_rmsd 1.0
             def process_and_save(conf_file, docked_plant):
                 df, name = runner(conf_file, docked_plant)
                 if not df.empty:
-                    logger.info(f"Saving results for {name}")
-                    self._save_to_sdf(df, name)
-                else:
-                    logger.warning(f"No valid results for {name}, skipping SDF file creation")
-                    # Do NOT create any file if all fallback strategies failed
+                    # Create a copy of self._save_to_sdf that can be called here
+                    sdf_path = self.docked_final_dir / f"{name}_Plants.sdf"
+                    logger.info(f"Saving results for {name} to {sdf_path}")
+                    PandasTools.WriteSDF(df, str(sdf_path.absolute()),
+                                        idName="LIGAND_ENTRY", molColName="Molecule",
+                                        properties=list(df.columns))
                 return (df, name)  # Still return results for counting/reporting
                 
             results = Parallel(n_jobs=n_cpus)(
@@ -459,8 +302,7 @@ cluster_rmsd 1.0
                     self._save_to_sdf(df, name)
                     success_count += 1
                 else:
-                    logger.warning(f"No valid results for {name}, skipping SDF file creation")
-                    # Do NOT create any file if all fallback strategies failed
+                    logger.warning(f"Skipping empty results for {name}")
             
             logger.info(f"Docking completed: {success_count} successful out of {len(conf_files)} ligands")
 
@@ -522,92 +364,12 @@ class Convert_Plants:
                 rd_mols = valid_mols
                 
                 if not rd_mols:
-                    logger.warning(f"Fix_Mol2 strategy failed to fix any molecules for {self.plants_mol}")
-                    logger.info(f"Attempting final fallback: using unsanitized molecules directly")
-                    
-                    # Final fallback: use the broken molecules directly (unsanitized)
-                    try:
-                        broken_mols = dm.read_mol2file(self.plants_mol, sanitize=False)
-                        logger.info(f"Final fallback: Read {len(broken_mols)} unsanitized molecules")
-                        
-                        if broken_mols:
-                            # Use the unsanitized molecules as-is
-                            rd_mols = [mol for mol in broken_mols if mol is not None]
-                            logger.warning(f"Using {len(rd_mols)} unsanitized molecules (bond orders may be incorrect)")
-                            
-                            # Check if we actually got valid molecules after filtering
-                            if not rd_mols:
-                                logger.error(f"All unsanitized molecules were None, trying pybel fallback")
-                                logger.info(f"Attempting ultimate fallback: pybel conversion with DU atom fixing...")
-                                
-                                # Ultimate fallback: pybel conversion with DU atom fixing
-                                rd_mols = self._pybel_fallback_strategy()
-                                if not rd_mols:
-                                    logger.error(f"All strategies including pybel fallback failed for {self.plants_mol}")
-                                    return pd.DataFrame()
-                        else:
-                            logger.error(f"No molecules read from MOL2 file, trying pybel fallback")
-                            logger.info(f"Attempting ultimate fallback: pybel conversion with DU atom fixing...")
-                            
-                            # Ultimate fallback: pybel conversion with DU atom fixing
-                            rd_mols = self._pybel_fallback_strategy()
-                            if not rd_mols:
-                                logger.error(f"All strategies including pybel fallback failed for {self.plants_mol}")
-                                return pd.DataFrame()
-                            
-                    except Exception as final_error:
-                        logger.error(f"All fallback strategies failed for {self.plants_mol}: {final_error}")
-                        logger.info(f"Attempting ultimate fallback: pybel conversion with DU atom fixing...")
-                        
-                        # Ultimate fallback: pybel conversion with DU atom fixing
-                        rd_mols = self._pybel_fallback_strategy()
-                        if not rd_mols:
-                            logger.error(f"All strategies including pybel fallback failed for {self.plants_mol}")
-                            return pd.DataFrame()
+                    logger.error(f"Fix_Mol2 strategy failed to fix any molecules for {self.plants_mol}")
+                    return pd.DataFrame()
                     
             except Exception as fix_error:
-                logger.warning(f"Fix_Mol2 fallback strategy failed for {self.plants_mol}: {fix_error}")
-                logger.info(f"Attempting final fallback: using unsanitized molecules directly")
-                
-                # Final fallback: use the broken molecules directly (unsanitized)
-                try:
-                    broken_mols = dm.read_mol2file(self.plants_mol, sanitize=False)
-                    logger.info(f"Final fallback: Read {len(broken_mols)} unsanitized molecules")
-                    
-                    if broken_mols:
-                        # Use the unsanitized molecules as-is
-                        rd_mols = [mol for mol in broken_mols if mol is not None]
-                        logger.warning(f"Using {len(rd_mols)} unsanitized molecules (bond orders may be incorrect)")
-                        
-                        # Check if we actually got valid molecules after filtering
-                        if not rd_mols:
-                            logger.error(f"All unsanitized molecules were None, trying pybel fallback")
-                            logger.info(f"Attempting ultimate fallback: pybel conversion with DU atom fixing...")
-                            
-                            # Ultimate fallback: pybel conversion with DU atom fixing
-                            rd_mols = self._pybel_fallback_strategy()
-                            if not rd_mols:
-                                logger.error(f"All strategies including pybel fallback failed for {self.plants_mol}")
-                                return pd.DataFrame()
-                    else:
-                        logger.error(f"No molecules read from MOL2 file, trying pybel fallback")
-                        logger.info(f"Attempting ultimate fallback: pybel conversion with DU atom fixing...")
-                        
-                        # Ultimate fallback: pybel conversion with DU atom fixing
-                        rd_mols = self._pybel_fallback_strategy()
-                        if not rd_mols:
-                            logger.error(f"All strategies including pybel fallback failed for {self.plants_mol}")
-                            return pd.DataFrame()
-                        
-                except Exception as final_error:
-                    logger.error(f"All fallback strategies failed for {self.plants_mol}: {final_error}")
-                    logger.info(f"Attempting ultimate fallback: pybel conversion with DU atom fixing...")
-                    
-                    # Ultimate fallback: pybel conversion with DU atom fixing
-                    rd_mols = self._pybel_fallback_strategy()
-                    if not rd_mols:
-                        logger.error(f"All strategies including pybel fallback failed for {self.plants_mol}")
-                        return pd.DataFrame()
+                logger.error(f"Fix_Mol2 fallback strategy also failed for {self.plants_mol}: {fix_error}")
+                return pd.DataFrame()
 
         rows = []
         for rd_mol in rd_mols:
@@ -621,147 +383,6 @@ class Convert_Plants:
         logger.info(f"Created {len(rows)} rows for DataFrame from {len(rd_mols)} molecules")
         return pd.DataFrame(rows)
 
-    def _pybel_fallback_strategy(self) -> List[Chem.Mol]:
-        """
-        Ultimate fallback: Use pybel to convert MOL2 to SDF, then fix DU atoms using template SMILES.
-        Prioritizes 3D coordinate preservation over chemical validity.
-        """
-        try:
-            logger.info(f"Starting pybel fallback strategy for {self.plants_mol}")
-            
-            # Get molecule name and template SMILES
-            mol_name = self.plants_dir.name
-            template_smiles = self.template_smiles_mapping.get(mol_name)
-            
-            if template_smiles is None:
-                logger.warning(f"No template SMILES found for {mol_name}, proceeding without DU fixing")
-                template_mol = None
-            else:
-                logger.info(f"Using template SMILES: {template_smiles[:50]}...")
-                template_mol = Chem.MolFromSmiles(template_smiles)
-                if template_mol is None:
-                    logger.warning(f"Invalid template SMILES, proceeding without DU fixing")
-            
-            # Read with pybel and convert to SDF format
-            pybel_mols = pybel.readfile("mol2", str(self.plants_mol))
-            fixed_mols = []
-            
-            for i, pybel_mol in enumerate(pybel_mols):
-                logger.debug(f"Processing pybel molecule {i+1}")
-                
-                # Convert to SDF format string
-                sdf_string = pybel_mol.write("sdf")
-                
-                # Read back with RDKit
-                rd_mol = Chem.MolFromMolBlock(sdf_string, sanitize=False)
-                if rd_mol is None:
-                    logger.warning(f"Failed to convert pybel molecule {i+1} to RDKit")
-                    continue
-                
-                # Fix DU atoms if template is available
-                if template_mol is not None:
-                    rd_mol = self._fix_du_atoms(rd_mol, template_mol, mol_name, i+1)
-                
-                # Set molecule name from original pybel molecule
-                if hasattr(pybel_mol, 'title') and pybel_mol.title:
-                    rd_mol.SetProp("_Name", pybel_mol.title)
-                else:
-                    rd_mol.SetProp("_Name", f"{mol_name}_conf_{i+1:02d}")
-                
-                fixed_mols.append(rd_mol)
-            
-            if fixed_mols:
-                logger.info(f"Pybel fallback strategy succeeded: {len(fixed_mols)} molecules recovered")
-                return fixed_mols
-            else:
-                logger.warning(f"Pybel fallback strategy failed: no valid molecules recovered")
-                return []
-                
-        except Exception as e:
-            logger.error(f"Pybel fallback strategy crashed: {e}")
-            return []
-
-    def _fix_du_atoms(self, mol: Chem.Mol, template_mol: Chem.Mol, mol_name: str, pose_num: int) -> Chem.Mol:
-        """
-        Fix DU (dummy) atoms by inferring correct atom types from template SMILES.
-        Preserves 3D coordinates as much as possible.
-        """
-        try:
-            logger.debug(f"Fixing DU atoms for {mol_name} pose {pose_num}")
-            
-            # Check if there are any DU atoms
-            du_atoms = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "Du"]
-            if not du_atoms:
-                logger.debug(f"No DU atoms found in {mol_name} pose {pose_num}")
-                return mol
-            
-            logger.info(f"Found {len(du_atoms)} DU atoms in {mol_name} pose {pose_num}")
-            
-            # If atom counts don't match, can't reliably fix
-            if mol.GetNumAtoms() != template_mol.GetNumAtoms():
-                logger.warning(f"Atom count mismatch: mol={mol.GetNumAtoms()}, template={template_mol.GetNumAtoms()}")
-                logger.warning(f"Attempting to fix DU atoms without full matching")
-                
-                # Try to fix DU atoms by inferring from neighbors
-                mol_copy = Chem.RWMol(mol)
-                for atom in du_atoms:
-                    # Get neighboring atoms
-                    neighbors = [mol.GetAtomWithIdx(n.GetIdx()) for n in atom.GetNeighbors()]
-                    neighbor_symbols = [n.GetSymbol() for n in neighbors]
-                    
-                    # Simple heuristics for common cases
-                    if len(neighbors) == 1:
-                        # Single bonded DU - likely H or O
-                        if neighbors[0].GetSymbol() in ['C', 'N']:
-                            atom.SetAtomicNum(1)  # H
-                            logger.debug(f"Fixed DU atom to H (single bond to {neighbors[0].GetSymbol()})")
-                    elif len(neighbors) == 2:
-                        # Double bonded DU - likely O or N
-                        if all(n.GetSymbol() == 'C' for n in neighbors):
-                            atom.SetAtomicNum(8)  # O
-                            logger.debug(f"Fixed DU atom to O (bonded to two C)")
-                        else:
-                            atom.SetAtomicNum(7)  # N
-                            logger.debug(f"Fixed DU atom to N (bonded to mixed atoms)")
-                
-                # Try to sanitize the fixed molecule
-                try:
-                    Chem.SanitizeMol(mol_copy)
-                    return mol_copy.GetMol()
-                except:
-                    logger.warning(f"Sanitization failed after DU fixing, returning original")
-                    return mol
-            else:
-                # Atom counts match - try direct mapping
-                logger.debug(f"Atom counts match, attempting direct template mapping")
-                
-                # Create new molecule from template with coordinates from broken mol
-                new_mol = Chem.RWMol(template_mol)
-                
-                # Copy coordinates if conformer exists
-                if mol.GetNumConformers() > 0:
-                    conf = Chem.Conformer(new_mol.GetNumAtoms())
-                    old_conf = mol.GetConformer()
-                    
-                    for i in range(min(mol.GetNumAtoms(), new_mol.GetNumAtoms())):
-                        pos = old_conf.GetAtomPosition(i)
-                        conf.SetAtomPosition(i, pos)
-                    
-                    new_mol.RemoveAllConformers()
-                    new_mol.AddConformer(conf)
-                
-                try:
-                    Chem.SanitizeMol(new_mol)
-                    logger.info(f"Successfully fixed DU atoms using template mapping")
-                    return new_mol.GetMol()
-                except:
-                    logger.warning(f"Template mapping failed, returning original with partial DU fixes")
-                    return mol
-                    
-        except Exception as e:
-            logger.error(f"DU atom fixing failed: {e}")
-            return mol
-
     def retrieve_csv(self):
         score_csv: Path = self.plants_dir / "ranking.csv"
         score_df = pd.read_csv(score_csv)
@@ -770,18 +391,11 @@ class Convert_Plants:
 
     def main(self):
         """Process docked ligands and merge with scores."""
-        mol_name = self.plants_dir.name
-        logger.info(f"=== Starting Convert_Plants.main() for {mol_name} ===")
-        
         # Load molecules from mol2 file
-        logger.info(f"Loading molecules from MOL2 file for {mol_name}")
         rdmol_df = self.get_rdmol_df()
-        logger.info(f"Loaded rdmol_df with {len(rdmol_df)} rows for {mol_name}")
         
         # Load scores from CSV
-        logger.info(f"Loading scores from CSV for {mol_name}")
         score_df = self.retrieve_csv()
-        logger.info(f"Loaded score_df with {len(score_df)} rows for {mol_name}")
         
         # For debugging
         logger.debug(f"Molecule names in mol2: {rdmol_df['LIGAND_ENTRY'].tolist()}")
