@@ -182,6 +182,74 @@ def output_validator():
         
         return False
 
+    def validate_sdf_naming(sdf_file_path: Path, software: str) -> bool:
+        """
+        Validate SDF file naming convention for both filename and internal molecule names.
+        
+        Expected patterns:
+        - Filename: {LIG_NAME}_Iso{NUM}_Taut{NUM}_{SOFTWARE}.sdf (or .sd for rxdock)
+        - Internal names: {LIG_NAME}_Iso{NUM}_Taut{NUM}_{SOFTWARE}-P{POSE_NUM}
+        
+        Parameters:
+        -----------
+        sdf_file_path : Path
+            Path to the SDF file
+        software : str
+            Software name ("rxdock", "plants", "gnina", "openeye")
+            
+        Returns:
+        --------
+        bool
+            True if naming conventions are correct, False otherwise
+        """
+        import re
+        from rdkit import Chem
+        
+        # Define filename patterns per software
+        filename_patterns = {
+            "rxdock": r".*_Iso\d+_Taut\d+_Rxdock\.sd$",
+            "plants": r".*_Iso\d+_Taut\d+_Plants\.sdf$", 
+            "gnina": r".*_Iso\d+_Taut\d+_Gnina\.sdf$",
+            "openeye": r".*_Iso\d+_Taut\d+_Eye\.sdf$"
+        }
+        
+        # Define internal name patterns per software
+        internal_patterns = {
+            "rxdock": r".*_Iso\d+_Taut\d+_Rxdock-P\d+$",
+            "plants": r".*_Iso\d+_Taut\d+_Plants-P\d+$",
+            "gnina": r".*_Iso\d+_Taut\d+_Gnina-P\d+$", 
+            "openeye": r".*_Iso\d+_Taut\d+_Eye-P\d+$"
+        }
+        
+        if software not in filename_patterns:
+            return False
+            
+        # Validate filename
+        filename = sdf_file_path.name
+        if not re.match(filename_patterns[software], filename):
+            return False
+            
+        # Validate internal molecule names
+        try:
+            supplier = Chem.SDMolSupplier(str(sdf_file_path), sanitize=False)
+            
+            for mol in supplier:
+                if mol is None:
+                    continue
+                    
+                # Get molecule name
+                mol_name = mol.GetProp("_Name") if mol.HasProp("_Name") else ""
+                
+                # Check if name matches pattern
+                if not re.match(internal_patterns[software], mol_name):
+                    return False
+                    
+        except Exception:
+            # If we can't read the file, consider it invalid naming
+            return False
+            
+        return True
+
     def validate_output_files(workdir: Path, engine: str) -> Dict[str, bool]:
         """Validate expected output files for a docking engine."""
         results = {}
@@ -196,11 +264,13 @@ def output_validator():
             sd_files = list(output_dir.glob("*.sd"))
             results["has_sd_files"] = len(sd_files) > 0
             results["all_sd_files_not_empty"] = all(f.stat().st_size > 0 for f in sd_files)
+            results["sdf_naming_correct"] = all(validate_sdf_naming(f, "rxdock") for f in sd_files)
         elif engine == "plants":
             # Plants creates _Plants.sdf files
             sdf_files = list(output_dir.glob("*_Plants.sdf"))
             results["has_plants_sdf_files"] = len(sdf_files) > 0
             results["all_plants_sdf_files_not_empty"] = all(f.stat().st_size > 0 for f in sdf_files)
+            results["sdf_naming_correct"] = all(validate_sdf_naming(f, "plants") for f in sdf_files)
             # Check for unknown atoms in ALL Plants SDF files
             # results["no_unknown_atoms_in_plants_sdf"] = all(
             #     not has_unknown_atoms_in_sdf(sdf_file) for sdf_file in sdf_files
@@ -210,18 +280,21 @@ def output_validator():
             sdf_files = list(output_dir.glob("*_Gnina.sdf"))
             results["has_gnina_sdf_files"] = len(sdf_files) > 0
             results["all_gnina_sdf_files_not_empty"] = all(f.stat().st_size > 0 for f in sdf_files)
+            results["sdf_naming_correct"] = all(validate_sdf_naming(f, "gnina") for f in sdf_files)
         elif engine == "openeye":
             # OpenEye creates _Eye.sdf files
             sdf_files = list(output_dir.glob("*_Eye.sdf"))
             results["has_openeye_sdf_files"] = len(sdf_files) > 0
             results["all_openeye_sdf_files_not_empty"] = all(f.stat().st_size > 0 for f in sdf_files)
+            results["sdf_naming_correct"] = all(validate_sdf_naming(f, "openeye") for f in sdf_files)
         
         return results
     
     return {
         "file_exists_and_not_empty": validate_file_exists_and_not_empty,
         "directory_structure": validate_directory_structure,
-        "output_files": validate_output_files
+        "output_files": validate_output_files,
+        "sdf_naming": validate_sdf_naming
     }
 
 # Environment setup fixture

@@ -60,6 +60,7 @@ class TestRxDockPipeline:
         file_validation = output_validator["output_files"](persistent_tmp_workdir, "rxdock")
         assert file_validation["has_sd_files"], "Should have .sd output files"
         assert file_validation["all_sd_files_not_empty"], "All .sd files should be non-empty"
+        assert file_validation["sdf_naming_correct"], "RxDock SDF files should have correct naming convention"
         
         # Print info for manual inspection
         print(f"\n{'='*60}")
@@ -116,6 +117,7 @@ class TestPlantsPipeline:
         file_validation = output_validator["output_files"](persistent_tmp_workdir, "plants")
         assert file_validation["has_plants_sdf_files"], "Should have _Plants.sdf output files"
         assert file_validation["all_plants_sdf_files_not_empty"], "All _Plants.sdf files should be non-empty"
+        assert file_validation["sdf_naming_correct"], "Plants SDF files should have correct naming convention"
         # FIXME: Uncomment this line if you want to check for unknown atoms
         # assert file_validation["no_unknown_atoms_in_plants_sdf"], "Plants SDF files should not contain unknown atoms (*)"
         
@@ -185,6 +187,7 @@ class TestGninaPipeline:
         file_validation = output_validator["output_files"](persistent_tmp_workdir, "gnina")
         assert file_validation["has_gnina_sdf_files"], "Should have _Gnina.sdf output files"
         assert file_validation["all_gnina_sdf_files_not_empty"], "All _Gnina.sdf files should be non-empty"
+        assert file_validation["sdf_naming_correct"], "Gnina SDF files should have correct naming convention"
         
         # Check for prepared protein
         if protein_protonation_method == "protoss":
@@ -263,6 +266,7 @@ class TestOpenEyePipeline:
         file_validation = output_validator["output_files"](persistent_tmp_workdir, "openeye")
         assert file_validation["has_openeye_sdf_files"], "Should have _Eye.sdf output files"
         assert file_validation["all_openeye_sdf_files_not_empty"], "All _Eye.sdf files should be non-empty"
+        assert file_validation["sdf_naming_correct"], "OpenEye SDF files should have correct naming convention"
         
         # Check for design unit file
         design_unit = persistent_tmp_workdir / f"{protein_pdb.stem}_Receptor.oedu"

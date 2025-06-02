@@ -346,8 +346,8 @@ END_SECTION
         # Create configuration for each ligand (using the same parameter file for all)
         docking_configs = []
         for ligand_sdf in self.ligands_splitted:
-            # Output file base name (without extension)
-            output_base = self.docked_output / ligand_sdf.stem
+            # Output file base name (without extension) - include software name
+            output_base = self.docked_output / f"{ligand_sdf.stem}_Rxdock"
             
             # Add to list of configurations - all ligands use the same parameter file
             docking_configs.append((ligand_sdf, self.rxdock_prm_file, output_base))
@@ -613,8 +613,8 @@ class Convert_RxDock:
                 # Get molecule
                 mol = row["Molecule"]
                 
-                # Set the name property with proper convention: {base_name}_RxDock-P{i+1}
-                pose_name = f"{base_name}_RxDock-P{i+1}"
+                # Set the name property with proper convention: {base_name}_Rxdock-P{i+1}
+                pose_name = f"{base_name}_Rxdock-P{i+1}"
                 mol.SetProp("_Name", pose_name)  # Set the molecule name property
                 mol.SetProp("LIGAND_ENTRY", pose_name)  # Also set as a property for dataframe
                 
@@ -669,8 +669,8 @@ class Convert_RxDock:
             # Process names to match standard format
             base_name = self.rxdock_output.stem
             
-            # Format entry names: {base_name}_RxDock-P{i+1}
-            comb_df["LIGAND_ENTRY"] = [f"{base_name}_RxDock-P{i+1}" for i in range(len(comb_df))]
+            # Format entry names: {base_name}_Rxdock-P{i+1}
+            comb_df["LIGAND_ENTRY"] = [f"{base_name}_Rxdock-P{i+1}" for i in range(len(comb_df))]
             
             # Add software name for identification (lowercase for consistency with Wrapper_Docking)
             comb_df["Software"] = "rxdock"
