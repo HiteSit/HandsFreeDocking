@@ -206,19 +206,25 @@ def output_validator():
         from rdkit import Chem
         
         # Define filename patterns per software
+        # Support both tautomer enumeration cases:
+        # - With tautomers: {BASE}_Iso{N}_Taut{M}_{SOFTWARE}
+        # - Without tautomers: {BASE}_Iso{N}_{SOFTWARE}
         filename_patterns = {
-            "rxdock": r".*_Iso\d+_Taut\d+_Rxdock\.sd$",
-            "plants": r".*_Iso\d+_Taut\d+_Plants\.sdf$", 
-            "gnina": r".*_Iso\d+_Taut\d+_Gnina\.sdf$",
-            "openeye": r".*_Iso\d+_Taut\d+_Eye\.sdf$"
+            "rxdock": r".*_Iso\d+(_Taut\d+)?_Rxdock\.sd$",
+            "plants": r".*_Iso\d+(_Taut\d+)?_Plants\.sdf$", 
+            "gnina": r".*_Iso\d+(_Taut\d+)?_Gnina\.sdf$",
+            "openeye": r".*_Iso\d+(_Taut\d+)?_Eye\.sdf$"
         }
         
         # Define internal name patterns per software
+        # Support both tautomer enumeration cases:
+        # - With tautomers: {BASE}_Iso{N}_Taut{M}_{SOFTWARE}-P{POSE}
+        # - Without tautomers: {BASE}_Iso{N}_{SOFTWARE}-P{POSE}
         internal_patterns = {
-            "rxdock": r".*_Iso\d+_Taut\d+_Rxdock-P\d+$",
-            "plants": r".*_Iso\d+_Taut\d+_Plants-P\d+$",
-            "gnina": r".*_Iso\d+_Taut\d+_Gnina-P\d+$", 
-            "openeye": r".*_Iso\d+_Taut\d+_Eye-P\d+$"
+            "rxdock": r".*_Iso\d+(_Taut\d+)?_Rxdock-P\d+$",
+            "plants": r".*_Iso\d+(_Taut\d+)?_Plants-P\d+$",
+            "gnina": r".*_Iso\d+(_Taut\d+)?_Gnina-P\d+$", 
+            "openeye": r".*_Iso\d+(_Taut\d+)?_Eye-P\d+$"
         }
         
         if software not in filename_patterns:

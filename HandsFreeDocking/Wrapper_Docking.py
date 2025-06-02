@@ -405,8 +405,11 @@ class PipelineDocking:
         df_list = []
         
         for lig_path in docked_ligands:
-            # Load the molecules
-            df = PandasTools.LoadSDF(str(lig_path), molColName="Molecule")
+            # Load the molecules - use sanitize=False for RxDock to handle valence issues
+            if software == "rxdock":
+                df = PandasTools.LoadSDF(str(lig_path), molColName="Molecule", sanitize=False)
+            else:
+                df = PandasTools.LoadSDF(str(lig_path), molColName="Molecule")
             
             # Add the software description and paths
             df["Software"] = software

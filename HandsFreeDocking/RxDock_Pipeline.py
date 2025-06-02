@@ -35,6 +35,200 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+class RxDockNamingStrategy:
+    """Handle naming conventions for RxDock output files and molecules."""
+    
+    @staticmethod
+    def extract_ligand_base_name(filename: str) -> str:
+        """
+        Extract base ligand name, removing software suffix if present.
+        
+        Args:
+            filename: Filename or path to extract base name from
+            
+        Returns:
+            Base ligand name without software suffix
+        """
+        # Remove file extension and get stem
+        stem = Path(filename).stem
+        
+        # Define suffixes to remove (case-insensitive)
+        software_suffixes = ['_Rxdock', '_rxdock', '_RXDOCK']
+        
+        for suffix in software_suffixes:
+            if stem.endswith(suffix):
+                return stem[:-len(suffix)]
+        
+        return stem
+    
+    @staticmethod
+    def create_pose_name(ligand_base: str, pose_num: int) -> str:
+        """
+        Create pose name following naming convention.
+        
+        Args:
+            ligand_base: Base ligand name (e.g., "LigComplex1_Iso0_Taut0")
+            pose_num: Pose number (1-based)
+            
+        Returns:
+            Formatted pose name (e.g., "LigComplex1_Iso0_Taut0_Rxdock-P1")
+        """
+        return f"{ligand_base}_Rxdock-P{pose_num}"
+    
+    @staticmethod
+    def create_entry_name(rxdock_output: Path, conf_num: int) -> str:
+        """
+        Create entry name for internal processing.
+        
+        Args:
+            rxdock_output: Path to RxDock output file
+            conf_num: Conformation number (1-based)
+            
+        Returns:
+            Entry name for tracking
+        """
+        return f"{rxdock_output.stem}_conf_{conf_num}"
+
+
+class RxDockDataParser:
+    """Parse RxDock output files to extract molecules and properties."""
+    
+    def __init__(self, sd_file: Path):
+        """
+        Initialize parser for a specific SD file.
+        
+        Args:
+            sd_file: Path to RxDock output SD file
+        """
+        self.sd_file = sd_file
+        
+    def read_molecules(self) -> List[Chem.Mol]:
+        """
+        Read molecules from SD file with proper error handling.
+        
+        Returns:
+            List of RDKit molecule objects
+        """
+        try:
+            # Use sanitize=False to handle RxDock output issues
+            molecules = list(dm.read_sdf(self.sd_file, as_df=False, sanitize=False))
+            return [mol for mol in molecules if mol is not None]
+        except Exception as e:
+            logger.error(f"Error reading molecules from {self.sd_file}: {e}")
+            return []
+    
+    def read_properties_dataframe(self) -> pd.DataFrame:
+        """
+        Read molecule properties as DataFrame.
+        
+        Returns:
+            DataFrame with molecule properties and scores
+        """
+        try:
+            # Use sanitize=False to handle RxDock output issues
+            df = dm.read_sdf(self.sd_file, as_df=True, sanitize=False)
+            return df if not df.empty else pd.DataFrame()
+        except Exception as e:
+            logger.error(f"Error reading properties from {self.sd_file}: {e}")
+            return pd.DataFrame()
+    
+    def extract_scores(self) -> pd.DataFrame:
+        """
+        Extract score columns from properties.
+        
+        Returns:
+            DataFrame with score information
+        """
+        props_df = self.read_properties_dataframe()
+        
+        if props_df.empty:
+            return pd.DataFrame()
+        
+        # Find score columns
+        score_cols = [col for col in props_df.columns if 'SCORE' in col.upper()]
+        
+        if not score_cols:
+            logger.warning(f"No score columns found in {self.sd_file}")
+            return pd.DataFrame()
+        
+        # Create entry names for tracking
+        naming_strategy = RxDockNamingStrategy()
+        props_df["LIGAND_ENTRY"] = [
+            naming_strategy.create_entry_name(self.sd_file, i+1) 
+            for i in range(len(props_df))
+        ]
+        
+        # Select relevant columns
+        result_df = props_df[["LIGAND_ENTRY"] + score_cols].copy()
+        
+        # Ensure main SCORE column exists
+        main_score_col = next((col for col in score_cols if col.upper() == 'SCORE'), None)
+        if main_score_col and main_score_col != "SCORE":
+            result_df["SCORE"] = result_df[main_score_col]
+        
+        return result_df
+
+
+class RxDockFileProcessor:
+    """Handle file operations for RxDock output processing."""
+    
+    @staticmethod
+    def update_molecule_names(molecules: List[Chem.Mol], 
+                            base_name: str,
+                            naming_strategy: RxDockNamingStrategy) -> List[Chem.Mol]:
+        """
+        Update molecule names using naming strategy.
+        
+        Args:
+            molecules: List of RDKit molecules
+            base_name: Base ligand name
+            naming_strategy: Naming strategy to use
+            
+        Returns:
+            List of molecules with updated names
+        """
+        updated_molecules = []
+        
+        for i, mol in enumerate(molecules):
+            if mol is None:
+                continue
+                
+            # Create proper pose name
+            pose_name = naming_strategy.create_pose_name(base_name, i + 1)
+            
+            # Update molecule properties but preserve existing ones
+            mol.SetProp("_Name", pose_name)
+            mol.SetProp("LIGAND_ENTRY", pose_name)
+            mol.SetProp("Software", "rxdock")
+            
+            # Ensure SCORE is preserved if it exists - this is important for wrapper compatibility
+            # The wrapper expects molecules to have SCORE property when reading with PandasTools
+            
+            updated_molecules.append(mol)
+        
+        return updated_molecules
+    
+    @staticmethod
+    def write_updated_file(molecules: List[Chem.Mol], output_path: Path) -> bool:
+        """
+        Write molecules back to file.
+        
+        Args:
+            molecules: List of updated molecules
+            output_path: Path to write file
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with dm.without_rdkit_log():
+                dm.to_sdf(molecules, output_path)
+            return True
+        except Exception as e:
+            logger.error(f"Error writing updated file {output_path}: {e}")
+            return False
+
 class RxDock_Docking:
     def __init__(self, workdir: Path, pdb_ID: Path, crystal_path: Path, ligands_sdf: Path, 
                 protonation_method: str = "cdp", tautomer_score_threshold: Optional[float] = None):
@@ -501,9 +695,16 @@ END_SECTION
 
 
 class Convert_RxDock:
+    """
+    Refactored RxDock output processor using modular components.
+    
+    This class coordinates the processing of RxDock output files using
+    specialized components for data parsing, naming, and file operations.
+    """
+    
     def __init__(self, rxdock_output: Path, output_dir: Optional[Path] = None):
         """
-        Initialize the Convert_RxDock class for processing RxDock output
+        Initialize the Convert_RxDock processor.
         
         Args:
             rxdock_output: Path to RxDock output file (.sd)
@@ -514,82 +715,48 @@ class Convert_RxDock:
         self.output_dir: Path = output_dir if output_dir else self.rxdock_dir
         self.processed_files: List[Path] = []
         
+        # Initialize components
+        self.data_parser = RxDockDataParser(rxdock_output)
+        self.naming_strategy = RxDockNamingStrategy()
+        self.file_processor = RxDockFileProcessor()
+        
     def get_rdmol_df(self) -> pd.DataFrame:
         """
-        Convert RxDock output to DataFrame with RDKit molecules
+        Convert RxDock output to DataFrame with RDKit molecules.
         
         Returns:
             DataFrame with RDKit molecules and metadata
         """
-        try:
-            # Read molecules from SD file with sanitize=False to handle RxDock output issues
-            mols = list(dm.read_sdf(self.rxdock_output, as_df=False, sanitize=False))
-            
-            if not mols:
-                logger.warning(f"No molecules found in {self.rxdock_output}")
-                return pd.DataFrame()
-                
-            # Create DataFrame with molecules
-            df = pd.DataFrame({
-                "LIGAND_ENTRY": [f"{self.rxdock_output.stem}_conf_{i+1}" for i in range(len(mols))],
-                "Molecule": mols
-            })
-                
-            logger.info(f"Found {len(df)} docked poses in {self.rxdock_output}")
-            return df
-                
-        except Exception as e:
-            logger.error(f"Error reading RxDock output: {str(e)}")
+        molecules = self.data_parser.read_molecules()
+        
+        if not molecules:
+            logger.warning(f"No molecules found in {self.rxdock_output}")
             return pd.DataFrame()
+            
+        # Create DataFrame with molecules using proper naming
+        df = pd.DataFrame({
+            "LIGAND_ENTRY": [
+                self.naming_strategy.create_entry_name(self.rxdock_output, i+1) 
+                for i in range(len(molecules))
+            ],
+            "Molecule": molecules
+        })
+            
+        logger.info(f"Found {len(df)} docked poses in {self.rxdock_output}")
+        return df
             
     def retrieve_scores(self) -> pd.DataFrame:
         """
-        Extract scores from RxDock output
+        Extract scores from RxDock output using data parser.
         
         Returns:
             DataFrame with docking scores
         """
-        try:
-            # Read molecules with properties from SD file with sanitize=False
-            mols_df = dm.read_sdf(self.rxdock_output, as_df=True, sanitize=False)
-            
-            if mols_df.empty:
-                logger.warning(f"No molecules found in {self.rxdock_output}")
-                return pd.DataFrame()
-                
-            # Get column names that contain score information
-            score_cols = [col for col in mols_df.columns if 'SCORE' in col.upper()]
-            
-            if not score_cols:
-                logger.warning(f"No score columns found in {self.rxdock_output}")
-                return pd.DataFrame()
-                
-            # Create entry names that match the get_rdmol_df method
-            mols_df["LIGAND_ENTRY"] = [f"{self.rxdock_output.stem}_conf_{i+1}" for i in range(len(mols_df))]    
-
-            # Select only the score columns and LIGAND_ENTRY
-            score_df = mols_df[["LIGAND_ENTRY"] + score_cols]
-            
-            # IMPORTANT: Keep the original SCORE column (don't rename to 'Score') 
-            # This ensures it's recognized by Wrapper_Docking._get_docked_dataframe
-            # Add a separate Score column for internal use if needed
-            main_score_col = [col for col in score_cols if 'SCORE' in col.upper()][0]
-            if main_score_col != "SCORE":
-                # If the main score column isn't exactly "SCORE", rename it
-                score_df["SCORE"] = score_df[main_score_col]
-            
-            logger.info(f"Found scores for {len(score_df)} poses")
-            return score_df
-            
-        except Exception as e:
-            logger.error(f"Error retrieving scores: {str(e)}")
-            return pd.DataFrame()
+        return self.data_parser.extract_scores()
     
     def update_sdf_file(self, df: pd.DataFrame) -> Optional[Path]:
         """
-        Update the RxDock output SDF file with proper molecule naming convention.
-        Instead of creating multiple files, this updates the original file with proper
-        molecule names for each pose within the same file.
+        Update the RxDock output SDF file with proper molecule naming.
         
         Args:
             df: DataFrame with molecules and scores
@@ -597,74 +764,59 @@ class Convert_RxDock:
         Returns:
             Path to the updated SDF file or None if failed
         """
+        if df.empty:
+            logger.warning("No data to update in SDF file")
+            return None
+            
         try:
-            if df.empty:
-                logger.warning("No data to update in SDF file")
+            # Extract base ligand name using robust naming strategy
+            ligand_base_name = self.naming_strategy.extract_ligand_base_name(
+                self.rxdock_output.name
+            )
+            
+            # Get molecules from DataFrame
+            molecules = df["Molecule"].tolist()
+            
+            # Sort DataFrame by score (lower is better for RxDock) and reset index
+            if "SCORE" in df.columns:
+                df = df.sort_values("SCORE", ascending=True).reset_index(drop=True)
+                
+            # Update molecule names using file processor
+            updated_molecules = self.file_processor.update_molecule_names(
+                molecules, ligand_base_name, self.naming_strategy
+            )
+            
+            # Preserve scores in molecule properties
+            for mol, (_, row) in zip(updated_molecules, df.iterrows()):
+                if "SCORE" in row and not pd.isna(row["SCORE"]):
+                    mol.SetProp("SCORE", str(row["SCORE"]))
+            
+            # Write updated file
+            success = self.file_processor.write_updated_file(updated_molecules, self.rxdock_output)
+            
+            if success:
+                logger.info(f"Updated SDF file with {len(updated_molecules)} properly named poses: {self.rxdock_output}")
+                return self.rxdock_output
+            else:
                 return None
                 
-            # Extract the base ligand name without the _Rxdock suffix
-            base_name = self.rxdock_output.stem
-            if base_name.endswith("_Rxdock"):
-                # Remove the _Rxdock suffix to get the original ligand name
-                ligand_base_name = base_name[:-7]  # Remove "_Rxdock" (7 characters)
-            else:
-                ligand_base_name = base_name
-                
-            molecules = []
-            
-            # Reset the index after sorting to ensure pose numbers match sorted order
-            df = df.reset_index(drop=True)
-            
-            # For each molecule in the dataframe
-            for i, row in df.iterrows():
-                # Get molecule
-                mol = row["Molecule"]
-                
-                # Set the name property with proper convention: {ligand_base_name}_Rxdock-P{i+1}
-                pose_name = f"{ligand_base_name}_Rxdock-P{i+1}"
-                mol.SetProp("_Name", pose_name)  # Set the molecule name property
-                mol.SetProp("LIGAND_ENTRY", pose_name)  # Also set as a property for dataframe
-                
-                # Make sure SCORE is set properly
-                if "SCORE" in row and not pd.isna(row["SCORE"]):
-                    # Keep the original SCORE property (important for _get_docked_dataframe)
-                    if not mol.HasProp("SCORE"):
-                        mol.SetProp("SCORE", str(row["SCORE"]))
-                
-                # Add software property
-                mol.SetProp("Software", "rxdock")
-                
-                # Add molecule to the list
-                molecules.append(mol)
-            
-            # Write all molecules back to the original file
-            with dm.without_rdkit_log():
-                dm.to_sdf(molecules, self.rxdock_output)
-            
-            logger.info(f"Updated SDF file with {len(molecules)} properly named poses: {self.rxdock_output}")
-            return self.rxdock_output
-            
         except Exception as e:
             logger.error(f"Error updating SDF file: {str(e)}")
             return None
     
     def main(self) -> Tuple[pd.DataFrame, Optional[Path]]:
         """
-        Process docked ligands, merge with scores, and update the original SDF file
-        with proper molecule naming conventions for each pose.
+        Process docked ligands with proper naming conventions.
         
         Returns:
             Tuple containing:
                 - DataFrame with docked poses and scores
                 - Path to the updated SDF file or None if failed
         """
-        # Get molecules
+        # Get molecules and scores using new components
         rdmol_df = self.get_rdmol_df()
-        
-        # Get scores
         score_df = self.retrieve_scores()
         
-        # Merge molecules and scores
         if rdmol_df.empty or score_df.empty:
             logger.warning("Either molecules or scores are missing")
             return pd.DataFrame(), None
@@ -673,26 +825,27 @@ class Convert_RxDock:
             # Merge on LIGAND_ENTRY
             comb_df = pd.merge(rdmol_df, score_df, on="LIGAND_ENTRY")
             
-            # Process names to match standard format
-            base_name = self.rxdock_output.stem
-            
-            # Format entry names: {base_name}_Rxdock-P{i+1}
-            comb_df["LIGAND_ENTRY"] = [f"{base_name}_Rxdock-P{i+1}" for i in range(len(comb_df))]
-            
-            # Add software name for identification (lowercase for consistency with Wrapper_Docking)
-            comb_df["Software"] = "rxdock"
-            
-            # Add protein path for reference
-            comb_df["Protein_Path"] = str(self.rxdock_output)
-            
             # Sort by score (lower is better for RxDock)
             if "SCORE" in comb_df.columns:
                 comb_df = comb_df.sort_values("SCORE", ascending=True)
             
+            # Update entry names to final format for consistency
+            ligand_base_name = self.naming_strategy.extract_ligand_base_name(
+                self.rxdock_output.name
+            )
+            comb_df["LIGAND_ENTRY"] = [
+                self.naming_strategy.create_pose_name(ligand_base_name, i+1) 
+                for i in range(len(comb_df))
+            ]
+            
+            # Add metadata
+            comb_df["Software"] = "rxdock"
+            comb_df["Protein_Path"] = str(self.rxdock_output)
+            
             # Update the original SDF file with proper molecule naming
             updated_file = self.update_sdf_file(comb_df)
             
-            # If update was successful, add to processed_files list
+            # Track processed files
             if updated_file:
                 self.processed_files = [updated_file]
                 logger.info(f"Successfully updated RxDock output file: {updated_file}")
