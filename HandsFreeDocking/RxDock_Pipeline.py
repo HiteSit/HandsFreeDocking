@@ -406,8 +406,8 @@ END_SECTION
         
         for docked_output in self.docked_rxdock:
             try:
-                # Process the docked output - create new file with _RxDock suffix
-                converter = Convert_RxDock(docked_output, output_dir=self.docked_final_dir)
+                # Process the docked output - update the original file
+                converter = Convert_RxDock(docked_output)
                 df, updated_file = converter.main()
                 
                 if not df.empty:
@@ -588,13 +588,14 @@ class Convert_RxDock:
     def update_sdf_file(self, df: pd.DataFrame) -> Optional[Path]:
         """
         Update the RxDock output SDF file with proper molecule naming convention.
-        Creates a new file with _RxDock suffix to match Plants/Gnina architecture.
+        Instead of creating multiple files, this updates the original file with proper
+        molecule names for each pose within the same file.
         
         Args:
             df: DataFrame with molecules and scores
             
         Returns:
-            Path to the updated SDF file with _RxDock suffix or None if failed
+            Path to the updated SDF file or None if failed
         """
         try:
             if df.empty:
@@ -616,7 +617,6 @@ class Convert_RxDock:
                 pose_name = f"{base_name}_RxDock-P{i+1}"
                 mol.SetProp("_Name", pose_name)  # Set the molecule name property
                 mol.SetProp("LIGAND_ENTRY", pose_name)  # Also set as a property for dataframe
-                mol.SetProp("Name", f"{base_name}_RxDock")  # Set Name property for SDF metadata consistency
                 
                 # Make sure SCORE is set properly
                 if "SCORE" in row and not pd.isna(row["SCORE"]):
@@ -630,26 +630,12 @@ class Convert_RxDock:
                 # Add molecule to the list
                 molecules.append(mol)
             
-            # Create new file with _RxDock suffix (following Plants/Gnina pattern)
-            # Use the workdir/output directory structure like Plants/Gnina
-            if hasattr(self, 'output_dir') and self.output_dir:
-                output_dir = self.output_dir
-            else:
-                # Fallback to parent of rxdock_output
-                output_dir = self.rxdock_output.parent
-                # Check if we're in a workdir structure and use output subdirectory
-                potential_output_dir = output_dir / "output"
-                if potential_output_dir.exists():
-                    output_dir = potential_output_dir
-            
-            updated_file_path = output_dir / f"{base_name}_RxDock.sd"
-            
-            # Write all molecules to the new file with _RxDock suffix
+            # Write all molecules back to the original file
             with dm.without_rdkit_log():
-                dm.to_sdf(molecules, updated_file_path)
+                dm.to_sdf(molecules, self.rxdock_output)
             
-            logger.info(f"Created SDF file with {len(molecules)} properly named poses: {updated_file_path}")
-            return updated_file_path
+            logger.info(f"Updated SDF file with {len(molecules)} properly named poses: {self.rxdock_output}")
+            return self.rxdock_output
             
         except Exception as e:
             logger.error(f"Error updating SDF file: {str(e)}")
