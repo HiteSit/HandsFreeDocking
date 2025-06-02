@@ -390,9 +390,9 @@ class Convert_Plants:
                             rdkit_mol = Chem.MolFromMolBlock(sdf_string, sanitize=False)
                             
                             if rdkit_mol is not None:
-                                # Use directory name for molecule identification
+                                # Use directory name for molecule identification (standardized naming like RxDock)
                                 mol_base_name = self.plants_dir.name  # e.g., "Lig_Complex_3_Iso0_Taut0"
-                                pose_name = f"{mol_base_name}_pose_{i+1}"
+                                pose_name = f"{mol_base_name}_Plants-P{i+1}"
                                 rdkit_mol.SetProp("_Name", pose_name)
                                 rd_mols.append(rdkit_mol)
                                 logger.debug(f"Successfully converted pose {i+1}: {pose_name}")
@@ -492,27 +492,34 @@ class Convert_Plants:
                 if col not in comb_df.columns and col != "LIGAND_ENTRY":
                     comb_df[col] = float('nan')
         
-        # Process the final molecule names
+        # Process the final molecule names using standardized format (like RxDock)
         if not comb_df.empty:
             try:
-                # Clean up names: split the name, filter out 'entry', and take the first parts
-                clean_names = []
-                for entry in comb_df["LIGAND_ENTRY"]:
-                    # Split the name and filter out any parts containing 'entry'
-                    parts = [part for part in entry.split('_') if 'entry' not in part.lower()]
-                    # Take only the first two parts (ligand name and isomer info)
-                    base_parts = parts[:min(2, len(parts))]
-                    # Join them back with underscore and add Plants suffix
-                    clean_names.append('_'.join(base_parts) + "_Plants")
+                # Use the directory name as the base name (preserves individual ligand identity)
+                mol_base_name = self.plants_dir.name  # e.g., "Lig_Complex_3_Iso0_Taut0"
                 
-                comb_df["LIGAND_ENTRY"] = clean_names
+                # Create standardized pose names: {base_name}_Plants-P{pose_number}
+                standardized_names = []
+                for i in range(len(comb_df)):
+                    pose_name = f"{mol_base_name}_Plants-P{i+1}"
+                    standardized_names.append(pose_name)
+                
+                comb_df["LIGAND_ENTRY"] = standardized_names
+                
+                # Update the molecule _Name properties to match the standardized names
+                for i, (index, row) in enumerate(comb_df.iterrows()):
+                    mol = row["Molecule"]
+                    if mol is not None:
+                        pose_name = standardized_names[i]
+                        mol.SetProp("_Name", pose_name)
+                        mol.SetProp("Software", "plants")  # Add software identifier
+                
+                logger.info(f"Applied standardized naming: {mol_base_name}_Plants-P1 to P{len(comb_df)}")
+                
             except Exception as e:
-                logger.warning(f"Error processing names: {str(e)}")
-                comb_df["LIGAND_ENTRY"] = [f"Molecule_{i}_Plants" for i in range(len(comb_df))]
-            
-            # Add pose numbers starting from 1 (like Gnina does)
-            comb_df["LIGAND_ENTRY"] = [
-                f"{entry}-P{i+1}" for i, entry in enumerate(comb_df["LIGAND_ENTRY"])
-            ]
+                logger.warning(f"Error applying standardized names: {str(e)}")
+                # Fallback to generic naming if something goes wrong
+                mol_base_name = self.plants_dir.name if hasattr(self, 'plants_dir') else "Unknown"
+                comb_df["LIGAND_ENTRY"] = [f"{mol_base_name}_Plants-P{i+1}" for i in range(len(comb_df))]
         
         return comb_df

@@ -68,6 +68,25 @@ The main entry point is through `HandsFreeDocking.Wrapper_Docking.PipelineDockin
 - Each docking engine runs sequentially when multiple are selected (internal parallelization)
 - Results include normalized scores for cross-engine comparison
 
+#### Docking Engine Output Formats and Processing
+
+Each docking engine produces different output formats that require varying levels of post-processing:
+
+- **PLANTS Pipeline** (`Plants_Pipeline.py`): Outputs MOL2 files (`docked_ligands.mol2`) that frequently contain broken bond orders and invalid atom connectivity. The `Fix_Mol2.py` module implements a robust three-strategy cascade to repair these files:
+  1. **Template Reconstruction**: Creates new molecules from template SMILES and transfers 3D coordinates via atom mapping
+  2. **Force Bond Assignment**: Uses RDKit's `AssignBondOrdersFromTemplate` with multiple sanitization attempts  
+  3. **Connectivity Matching**: Builds connectivity signatures for atom mapping when substructure matching fails
+  
+  If all strategies fail, fallback to OpenBabel/Pybel conversion via SDF intermediate is used.
+
+- **RxDock Pipeline** (`RxDock_Pipeline.py`): Outputs clean SD files (`.sd`) that require minimal processing, mainly pose renaming
+
+- **GNINA Pipeline** (`Gnina_Pipeline.py`): Outputs standard SDF files (`.sdf`) with proper molecular formatting
+
+- **OpenEye Pipeline** (`OpenEye_Pipeline.py`): Outputs high-quality SDF files with comprehensive scoring annotations
+
+All pipelines ultimately convert results to SDF format for consistent downstream analysis. The Fix_Mol2 functionality is critical for PLANTS integration and handles the most challenging molecular repair cases in computational chemistry.
+
 ### External Dependencies
 
 The package relies on several external tools that must be installed:
