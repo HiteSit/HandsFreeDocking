@@ -1,4 +1,4 @@
-Lig_Complex_1
+LigComplex1
      RDKit          2D
 
  25 27  0  0  0  0  0  0  0  0999 V2000
@@ -57,7 +57,7 @@ Lig_Complex_1
 M  CHG  2   4   1  18  -1
 M  END
 $$$$
-Lig_Complex_2
+LigComplex2
      RDKit          2D
 
  25 27  0  0  0  0  0  0  0  0999 V2000
@@ -116,7 +116,7 @@ Lig_Complex_2
 M  CHG  2   4   1  18  -1
 M  END
 $$$$
-Lig_Complex_3
+LigComplex3
      RDKit          2D
 
  11 12  0  0  0  0  0  0  0  0999 V2000
@@ -145,7 +145,7 @@ Lig_Complex_3
   6  4  1  0
 M  END
 $$$$
-Lig_Complex_4
+LigComplex4
      RDKit          2D
 
  15 16  0  0  0  0  0  0  0  0999 V2000
@@ -182,7 +182,7 @@ Lig_Complex_4
  14  4  1  0
 M  END
 $$$$
-Lig_Complex_5
+LigComplex5
      RDKit          2D
 
  13 14  0  0  0  0  0  0  0  0999 V2000
@@ -215,7 +215,7 @@ Lig_Complex_5
  12  4  1  0
 M  END
 $$$$
-Lig_Complex_6
+LigComplex6
      RDKit          2D
 
  20 22  0  0  0  0  0  0  0  0999 V2000
