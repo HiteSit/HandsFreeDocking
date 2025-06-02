@@ -60,7 +60,6 @@ class TestRxDockPipeline:
         file_validation = output_validator["output_files"](persistent_tmp_workdir, "rxdock")
         assert file_validation["has_sd_files"], "Should have .sd output files"
         assert file_validation["all_sd_files_not_empty"], "All .sd files should be non-empty"
-        assert file_validation["sdf_naming_correct"], "RxDock SDF files should have correct naming convention"
         
         # Print info for manual inspection
         print(f"\n{'='*60}")
@@ -76,6 +75,7 @@ class TestRxDockPipeline:
         print(f"   - Cavity file: {persistent_tmp_workdir}/rxdock.as")
         print(f"{'='*60}\n")
 
+        assert file_validation["sdf_naming_correct"], "RxDock SDF files should have correct naming convention"
 
 class TestPlantsPipeline:
     """Test PLANTS docking pipeline individually."""

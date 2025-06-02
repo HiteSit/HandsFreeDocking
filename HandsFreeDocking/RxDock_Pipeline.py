@@ -522,8 +522,8 @@ class Convert_RxDock:
             DataFrame with RDKit molecules and metadata
         """
         try:
-            # Read molecules from SD file
-            mols = list(dm.read_sdf(self.rxdock_output, as_df=False))
+            # Read molecules from SD file with sanitize=False to handle RxDock output issues
+            mols = list(dm.read_sdf(self.rxdock_output, as_df=False, sanitize=False))
             
             if not mols:
                 logger.warning(f"No molecules found in {self.rxdock_output}")
@@ -550,8 +550,8 @@ class Convert_RxDock:
             DataFrame with docking scores
         """
         try:
-            # Read molecules with properties from SD file
-            mols_df = dm.read_sdf(self.rxdock_output, as_df=True)
+            # Read molecules with properties from SD file with sanitize=False
+            mols_df = dm.read_sdf(self.rxdock_output, as_df=True, sanitize=False)
             
             if mols_df.empty:
                 logger.warning(f"No molecules found in {self.rxdock_output}")
@@ -602,7 +602,14 @@ class Convert_RxDock:
                 logger.warning("No data to update in SDF file")
                 return None
                 
+            # Extract the base ligand name without the _Rxdock suffix
             base_name = self.rxdock_output.stem
+            if base_name.endswith("_Rxdock"):
+                # Remove the _Rxdock suffix to get the original ligand name
+                ligand_base_name = base_name[:-7]  # Remove "_Rxdock" (7 characters)
+            else:
+                ligand_base_name = base_name
+                
             molecules = []
             
             # Reset the index after sorting to ensure pose numbers match sorted order
@@ -613,8 +620,8 @@ class Convert_RxDock:
                 # Get molecule
                 mol = row["Molecule"]
                 
-                # Set the name property with proper convention: {base_name}_Rxdock-P{i+1}
-                pose_name = f"{base_name}_Rxdock-P{i+1}"
+                # Set the name property with proper convention: {ligand_base_name}_Rxdock-P{i+1}
+                pose_name = f"{ligand_base_name}_Rxdock-P{i+1}"
                 mol.SetProp("_Name", pose_name)  # Set the molecule name property
                 mol.SetProp("LIGAND_ENTRY", pose_name)  # Also set as a property for dataframe
                 
